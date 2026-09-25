@@ -1,0 +1,207 @@
+{
+"personal_info": {
+"name": "Shriram Mange",
+"title": "Professional Application Developer | Technical Expert | Android Developer",
+"location": "Nashik, Maharashtra, India",
+"status": "Available for Projects",
+"email": "mange.shriram@gmail.com",
+"telegram": "@Shrirammange",
+"website": "https://shrirammange.me"
+},
+"summary": "Passionate Android developer with expertise in Kotlin and Jetpack Compose. Crafting beautiful, performant mobile experiences and full-stack web solutions. Currently working with leading tech companies to build innovative applications.",
+"stats": {
+"projects_completed": "15+",
+"years_experience": "2+"
+},
+"skills": {
+"core_competencies": [
+"Android Development (Kotlin/Java, Jetpack Compose, MVVM)",
+"Full-Stack Web Development (React, PHP, MySQL, Firebase)",
+"Problem-Solving & Architecture (Clean Architecture, Design Patterns, DSA, OOP)"
+],
+"technologies": [
+"Android", "Kotlin", "Java", "Flutter", "Dart", "Jetpack Compose", "Room DB",
+"Material Design", "GitHub", "Tailwind CSS", "Firebase", "MySQL", "PHP",
+"GCP", "AWS", "VS Code", "Figma", "Canva", "Node.js", "HTML5", "CSS3",
+"JavaScript", "Python", "Git", "Supabase", "React", "Raspberry Pi"
+]
+},
+"services": [
+"Custom Mobile App Development",
+"Modern Web Solutions",
+"SEO Optimization",
+"UI/UX Design",
+"Technical Consulting",
+"Digital Design Services"
+],
+"experience": [
+{
+"role": "Full Stack Developer Intern",
+"company": "Wind Hans Technology",
+"duration": "Jan 12, 2026 - Jan 27, 2026",
+"location": "Nashik, Maharashtra, India (Offline)",
+"key_achievements": [
+"Developed an Employee Attendance Application using Android (Kotlin + Jetpack Compose)",
+"Designed and implemented key features including employee check-in/check-out, attendance tracking, and reporting"
+],
+"technologies_used": ["Kotlin", "Jetpack Compose", "Android SDK", "Git"]
+},
+{
+"role": "Freelance Developer",
+"company": "Self-Employed (Part-time / Project-based)",
+"duration": "2025 - Present",
+"location": "Nashik, India (Remote)",
+"key_achievements": [
+"Delivered 7+ end-to-end web and mobile applications for small businesses and clients",
+"Managed complete project lifecycle including requirements, development, testing, and deployment"
+],
+"technologies_used": ["React.js", "Flutter", "Firebase", "Node.js", "MySQL"]
+},
+{
+"role": "Android Intern",
+"company": "S.T.R.E.A.M. Edutech",
+"duration": "Sep 2024 - Feb 2025",
+"location": "Mumbai, Maharashtra, India (Remote)",
+"key_achievements": [
+"Developed a comprehensive School Management System as a solo developer, actively used by 150+ students",
+"Designed and implemented core modules for schedules, exams, assignments, and fee management",
+"Built native Android screens and components using Kotlin and Jetpack Compose"
+],
+"technologies_used": ["Kotlin", "Jetpack Compose", "Android SDK", "Firebase", "SQL"]
+},
+{
+"role": "Android Developer",
+"company": "Techentrance",
+"duration": "Aug 2024 - Jan 2025",
+"location": "Nashik, Maharashtra, India (Remote)",
+"key_achievements": [
+"Built and maintained Android applications with focus on user experience",
+"Integrated RESTful APIs and implemented data persistence solutions"
+],
+"technologies_used": ["Android Studio", "Java", "Kotlin", "Firebase"]
+}
+],
+"projects": [
+{
+"name": "Zervista - Salon Management System",
+"description": "Comprehensive salon & parlour service management system with customer management, staff management, analytics, and inventory tracking",
+"tags": ["Flutter", "Firebase", "Dart"]
+},
+{
+"name": "Stepo - School Management App",
+"description": "Full-featured Android application for managing student schedules, exams, assignments, and fee payments, actively used by 150+ students.",
+"tags": ["Kotlin", "Jetpack Compose", "SQL", "Firebase"]
+},
+{
+"name": "MyDhruva Mentors",
+"description": "Mentorship and guidance platform with student-centric content, showcasing programs, outcomes, and easy ways to get in touch.",
+"tags": ["Modern Web Tech", "Responsive Design"]
+},
+{
+"name": "House of Deepak",
+"description": "Fashion brand website featuring Indian and Western wear collections with a refined, responsive shopping experience.",
+"tags": ["React.js", "Tailwind CSS", "Firebase"]
+},
+{
+"name": "GTA Mods Collection",
+"description": "Curated collection of GTA game modifications and enhancements showcasing creative modding projects",
+"tags": ["Gaming", "Modding"]
+},
+{
+"name": "Smart Assistant for Blind People",
+"description": "IoT-based smart assistant using Raspberry Pi for reading printed text with OCR technology and text-to-speech conversion",
+"tags": ["Raspberry Pi", "Python", "OCR", "IoT"]
+},
+{
+"name": "Barcode Product Scanner",
+"description": "E-Commerce Product Images Manager App with barcode scanning technology and inventory tracking system",
+"tags": ["Android", "Barcode Scanning", "Database"]
+},
+{
+"name": "Pdfdroid - PDF Toolkit",
+"description": "Comprehensive PDF management web application with multiple utility features including merge, split, compress, and convert functionality",
+"tags": ["Web Technologies", "PDF.js", "JavaScript"]
+},
+{
+"name": "MediScribe OCR",
+"description": "Medical Prescription Recognition System using Paddle OCR and Python to digitize handwritten prescriptions",
+"tags": ["Python", "Paddle OCR", "Database"]
+},
+{
+"name": "Calculator App",
+"description": "Mobile Calculator Application built with Kotlin and Jetpack Compose featuring modern UI design and smooth animations",
+"tags": ["Kotlin", "Jetpack Compose", "Android"]
+},
+{
+"name": "QR-Barcode Scanner App",
+"description": "Multi-Purpose Scanner Application using Jetpack Compose and Google ML Kit with real-time scanning capabilities",
+"tags": ["Jetpack Compose", "Google ML Kit", "Kotlin"]
+},
+{
+"name": "Neutralise E-commerce",
+"description": "Modern E-Commerce Platform developed with modern web technologies and responsive design",
+"tags": ["Modern Web Tech", "Responsive Design"]
+}
+],
+"education": [
+{
+"degree": "MCA (Master of Computer Applications)",
+"institution": "K.K. Wagh Institute of Engineering Education and Research",
+"status": "Pursuing",
+"duration": "2025 - Present",
+"location": "Nashik, Maharashtra",
+"grade": "8.05 CGPA"
+},
+{
+"degree": "BCA (Bachelor of Computer Applications)",
+"institution": "Sandip University",
+"status": "Completed",
+"duration": "2022 - 2025",
+"location": "Nashik, Maharashtra",
+"grade": "8.41 CGPA"
+},
+{
+"degree": "HSC (Higher Secondary Certificate)",
+"institution": "KTMH College",
+"status": "Completed",
+"duration": "2020 - 2022",
+"location": "Nashik, Maharashtra",
+"stream": "Science stream"
+},
+{
+"degree": "SSC (Secondary School Certificate)",
+"institution": "K.K. Wagh English School",
+"status": "Completed",
+"duration": "2019 - 2020",
+"location": "Nashik, Maharashtra"
+}
+],
+"certifications_and_achievements": [
+{
+"title": "Kotlin Complete App Development Masterclass",
+"issuer": "Udemy",
+"date": "Apr 2026",
+"description": "Advanced Kotlin development, coroutines, architectural patterns (MVVM/MVI), and native app development practices."
+},
+{
+"title": "GitHub Foundations Certification",
+"issuer": "GitHub",
+"date": "Jan 24, 2025",
+"score": "82%",
+"description": "Validated proficiency in Git version control, collaboration protocols, GitHub Actions, and repository security settings."
+},
+{
+"title": "Mind Luster - Jetpack Compose Fundamentals",
+"issuer": "Mind Luster",
+"date": "Jul 2024",
+"description": "Focused course on declarative UI concepts, custom modifiers, animations, state lifting, and Android navigation components."
+},
+{
+"title": "NPTEL - Programming in Java",
+"issuer": "NPTEL (IIT)",
+"date": "Jan - Apr 2024",
+"score": "71%",
+"description": "Academic qualification covering OOP, multi-threading, concurrency, networking, and core Java libraries."
+}
+]
+}

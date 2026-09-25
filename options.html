@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>JobFill — Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="mark">J_</span>
+      <h1>JobFill settings</h1>
+    </header>
+
+    <section class="card">
+      <h2>Gemini API key</h2>
+      <p class="hint">
+        Stored only in this browser's local extension storage. Never sent anywhere except
+        directly to generativelanguage.googleapis.com. Get a key at
+        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.
+      </p>
+      <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
+      <div class="row">
+        <button id="saveKeyBtn" class="primary">Save key</button>
+        <button id="testKeyBtn" class="secondary">Test key</button>
+        <span id="keyStatus" class="status"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Profile data</h2>
+      <p class="hint">Upload your profile.json, or paste/edit it directly below.</p>
+      <input type="file" id="profileFile" accept="application/json" />
+      <textarea id="profileText" rows="12" spellcheck="false" placeholder="{ ... your profile.json ... }"></textarea>
+      <div class="row">
+        <button id="saveProfileBtn" class="primary">Save profile</button>
+        <span id="profileStatus" class="status"></span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Models</h2>
+      <p class="hint">
+        Field mapping runs far more often than answer-writing, so it defaults to the cheaper,
+        faster tier. Change these if you'd rather trade cost for quality.
+      </p>
+      <label>Field mapping (cheap, frequent)</label>
+      <input type="text" id="mappingModel" />
+      <label>Written answers (better quality, called once per open question)</label>
+      <input type="text" id="writingModel" />
+      <div class="row">
+        <button id="saveModelsBtn" class="primary">Save models</button>
+        <span id="modelStatus" class="status"></span>
+      </div>
+    </section>
+
+    <p class="footnote">
+      JobFill never clicks Submit/Apply for you, and it stops and asks you to solve any CAPTCHA
+      it finds. Always review a filled form before sending it.
+    </p>
+  </div>
+
+  <script src="constants.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

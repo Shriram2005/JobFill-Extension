@@ -1,0 +1,99 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #0b0d11;
+  color: #e6e6e6;
+  font: 14px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.wrap { max-width: 640px; margin: 0 auto; padding: 32px 24px 60px; }
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.mark {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  color: #5eead4;
+  font-weight: 700;
+  font-size: 20px;
+}
+
+h1 { font-size: 20px; margin: 0; font-weight: 600; }
+
+.card {
+  background: #12151b;
+  border: 1px solid #22262f;
+  border-radius: 10px;
+  padding: 20px 22px;
+  margin-bottom: 18px;
+}
+
+.card h2 { font-size: 14px; margin: 0 0 6px; font-weight: 600; }
+
+.hint { color: #8b93a3; font-size: 12.5px; margin: 0 0 14px; }
+.hint a { color: #5eead4; }
+
+label {
+  display: block;
+  font-size: 12px;
+  color: #9aa2b1;
+  margin: 12px 0 6px;
+}
+
+input[type="text"],
+input[type="password"],
+textarea {
+  width: 100%;
+  background: #0b0d11;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+  padding: 9px 10px;
+  color: #e6e6e6;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12.5px;
+}
+
+textarea { margin-top: 10px; resize: vertical; }
+
+input[type="file"] { color: #9aa2b1; font-size: 12.5px; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+button.primary {
+  background: #5eead4;
+  color: #0f1115;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+button.primary:hover { background: #7ff2e0; }
+
+button.secondary {
+  background: transparent;
+  color: #e6e6e6;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+button.secondary:hover { border-color: #3a3f4b; }
+
+.status { font-size: 12px; color: #8b93a3; }
+.status.ok { color: #5eead4; }
+.status.error { color: #f87171; }
+
+.footnote { color: #6b7280; font-size: 12px; text-align: center; margin-top: 24px; }

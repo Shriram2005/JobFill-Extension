@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>JobFill</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <span class="mark">J_</span>
+    <h1>JobFill</h1>
+  </header>
+
+  <main>
+    <button id="fillBtn" class="primary">Fill this application</button>
+    <p class="hint">Runs on the current tab. Fills what it can, flags the rest, never submits.</p>
+
+    <div id="statusRow" class="status-row hidden">
+      <span id="statusText"></span>
+    </div>
+
+    <section class="log">
+      <div class="log-head">
+        <h2>Recent activity</h2>
+        <button id="exportBtn" class="linklike">Export</button>
+      </div>
+      <ul id="logList"><li class="empty">No applications filled yet.</li></ul>
+    </section>
+  </main>
+
+  <footer>
+    <button id="optionsBtn" class="linklike">Profile &amp; API key settings</button>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
