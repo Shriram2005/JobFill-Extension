@@ -39,6 +39,20 @@
     </section>
 
     <section class="card">
+      <h2>Resumes (PDF)</h2>
+      <p class="hint">Upload different resumes for different roles. JobFill will automatically pick the best one for each application.</p>
+      <ul id="resumeList" style="list-style:none; padding:0; margin:10px 0;"></ul>
+      <div class="row" style="margin-top:10px; display:flex; gap:10px;">
+        <input type="text" id="resumeRole" placeholder="Role (e.g. Frontend Developer)" style="flex:1;" />
+        <input type="file" id="resumeFile" accept="application/pdf" style="flex:1;" />
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button id="addResumeBtn" class="primary">Add Resume</button>
+        <span id="resumeStatus" class="status"></span>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>Models</h2>
       <p class="hint">
         Field mapping runs far more often than answer-writing, so it defaults to the cheaper,
@@ -51,6 +65,19 @@
       <div class="row">
         <button id="saveModelsBtn" class="primary">Save models</button>
         <span id="modelStatus" class="status"></span>
+      </div>
+    </section>
+
+    <section class="card" style="border-color: #2a3741;">
+      <h2>🧠 Continual Learning</h2>
+      <p class="hint">
+        JobFill learns from your manual inputs! When you fill out forms, click "Save My Answers" 
+        to teach the AI how you prefer to answer questions. The AI will prioritize these learned 
+        answers in future applications.
+      </p>
+      <div class="row">
+        <button id="viewMemoryBtn" class="primary">View Learning Memory</button>
+        <span id="memoryCount" class="status" style="color: #5eead4;">Loading...</span>
       </div>
     </section>
 

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JobFill — Learning Memory</title>
+  <link rel="stylesheet" href="memory.css">
+</head>
+<body>
+  <div class="wrap">
+    <!-- Header -->
+    <header class="top-nav">
+      <div class="nav-left">
+        <span class="mark">J_</span>
+        <h1>Learning Memory</h1>
+        <span class="badge" id="totalBadge">0 learned</span>
+      </div>
+      <div class="nav-actions">
+        <button id="addEntryBtn" class="btn btn-primary" title="Add a custom Q&A to memory">
+          <svg class="icon" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+            <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/>
+          </svg>
+          Add Entry
+        </button>
+        <button id="exportBtn" class="btn btn-secondary" title="Export memory to JSON">Export</button>
+        <button id="importBtn" class="btn btn-secondary" title="Import memory from JSON">Import</button>
+        <input type="file" id="importFileInput" accept=".json" class="hidden" />
+        <button id="clearAllBtn" class="btn btn-danger-subtle" title="Clear all learned answers">Clear</button>
+        <button id="backBtn" class="btn btn-ghost" title="Back to Settings">← Settings</button>
+      </div>
+    </header>
+
+    <!-- Collapsible Add/Create Drawer -->
+    <section class="drawer card hidden" id="addDrawer">
+      <div class="drawer-header">
+        <h3 id="drawerTitle">Add Learned Answer</h3>
+        <button id="closeDrawerBtn" class="icon-btn" title="Close">×</button>
+      </div>
+      <div class="drawer-body">
+        <div class="form-group">
+          <label for="newQuestion">Question / Prompt Label</label>
+          <input 
+            type="text" 
+            id="newQuestion" 
+            placeholder="e.g. Why are you interested in this role?" 
+            autocomplete="off"
+          />
+        </div>
+        <div class="form-group">
+          <label for="newAnswer">Preferred Answer</label>
+          <textarea 
+            id="newAnswer" 
+            rows="3" 
+            placeholder="Enter the exact answer you want JobFill to remember..."
+          ></textarea>
+        </div>
+        <div class="drawer-actions">
+          <button id="saveDrawerBtn" class="btn btn-primary">Save to Memory</button>
+          <button id="cancelDrawerBtn" class="btn btn-ghost">Cancel</button>
+          <span id="drawerStatus" class="status-msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Toolbar Strip (Search + Sort + Stats) -->
+    <div class="toolbar card">
+      <div class="search-box">
+        <svg class="search-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+          <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+        </svg>
+        <input 
+          type="text" 
+          id="searchInput" 
+          placeholder="Filter questions or answers..." 
+          autocomplete="off"
+        />
+        <button id="clearSearchBtn" class="icon-btn clear-search hidden" title="Clear search">×</button>
+      </div>
+
+      <div class="toolbar-right">
+        <div class="sort-wrap">
+          <label for="sortSelect">Sort:</label>
+          <select id="sortSelect">
+            <option value="recent">Recently Used</option>
+            <option value="frequent">Most Used</option>
+            <option value="alpha">Question (A-Z)</option>
+            <option value="oldest">Oldest First</option>
+          </select>
+        </div>
+        <div class="meta-strip">
+          <span id="filterSummary">0 items</span>
+          <span class="meta-dot"></span>
+          <span id="lastUpdated">Never updated</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Memory List Container -->
+    <div id="memoryList" class="memory-list">
+      <!-- Generated memory items appear here -->
+    </div>
+
+    <!-- Empty State -->
+    <div class="empty-state card hidden" id="emptyState">
+      <div class="empty-content">
+        <div class="empty-icon">🧠</div>
+        <h2>No Learned Answers Yet</h2>
+        <p class="hint">JobFill learns automatically when you fill job applications and click "Save My Answers", or you can add custom answers manually right now.</p>
+        <button id="emptyAddBtn" class="btn btn-primary" style="margin-top: 14px;">+ Add Your First Answer</button>
+      </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay hidden" id="confirmModal">
+      <div class="modal-box card">
+        <h3 id="modalTitle">Confirm Action</h3>
+        <p id="modalMessage" class="modal-msg"></p>
+        <div class="modal-actions">
+          <button id="modalConfirmBtn" class="btn btn-danger">Confirm</button>
+          <button id="modalCancelBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="constants.js"></script>
+  <script src="memory.js"></script>
+</body>
+</html>

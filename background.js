@@ -4,6 +4,11 @@
 // model depending on what's being asked.
 
 importScripts("constants.js");
+try {
+  importScripts("config.js");
+} catch (e) {
+  // config.js is optional (credentials can also be configured via options page)
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "mapFields") {
@@ -24,6 +29,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+  if (message.action === "chooseResume") {
+    handleChooseResume(message.jobContext)
+      .then((resumeData) => sendResponse({ resumeData }))
+      .catch((err) => sendResponse({ error: err.message }));
+    return true;
+  }
+  if (message.action === "memoryUpdated") {
+    // Just acknowledge - used for notifications
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (message.action === "getMemoryStats") {
+    handleGetMemoryStats()
+      .then((stats) => sendResponse(stats))
+      .catch((err) => sendResponse({ error: err.message }));
+    return true;
+  }
+  if (message.action === "deleteMemoryEntry") {
+    handleDeleteMemoryEntry(message.question)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ error: err.message }));
+    return true;
+  }
+  if (message.action === "clearMemory") {
+    handleClearMemory()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ error: err.message }));
+    return true;
+  }
 });
 
 async function getConfig() {
@@ -33,20 +67,26 @@ async function getConfig() {
     keys.MAPPING_MODEL,
     keys.WRITING_MODEL,
   ]);
+  const envKey = typeof CONFIG !== "undefined" && CONFIG.GEMINI_API_KEY ? CONFIG.GEMINI_API_KEY : "";
   return {
-    apiKey: stored[keys.API_KEY],
+    apiKey: stored[keys.API_KEY] || envKey,
     mappingModel: stored[keys.MAPPING_MODEL] || JOBFILL_DEFAULTS.MAPPING_MODEL,
     writingModel: stored[keys.WRITING_MODEL] || JOBFILL_DEFAULTS.WRITING_MODEL,
   };
 }
 
-async function callGemini({ model, system, userText, maxTokens }) {
+async function callGemini({ model, system, userText, maxTokens, isJson = false }) {
   const { apiKey } = await getConfig();
   if (!apiKey) {
     throw new Error("No Gemini API key set. Open JobFill's options page and add one.");
   }
 
   const url = `${JOBFILL_DEFAULTS.API_URL}/${model}:generateContent?key=${apiKey}`;
+
+  const generationConfig = { maxOutputTokens: maxTokens };
+  if (isJson) {
+    generationConfig.responseMimeType = "application/json";
+  }
 
   const res = await fetch(url, {
     method: "POST",
@@ -56,7 +96,7 @@ async function callGemini({ model, system, userText, maxTokens }) {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: userText }] }],
-      generationConfig: { maxOutputTokens: maxTokens },
+      generationConfig,
     }),
   });
 
@@ -77,29 +117,44 @@ function jobfillTruncateErr(text) {
 async function handleMapFields(fields, profile) {
   const { mappingModel } = await getConfig();
 
+  // Fetch user memory for RAG-based learning
+  const memory = await getUserMemory();
+  const memoryContext = formatMemoryForPrompt(memory);
+
   const system = [
     "You are filling out a job application form on behalf of a candidate.",
     "You will receive a JSON array of form fields (id, label, placeholder, matchType, options)",
     "and the candidate's profile as JSON.",
+    "",
+    "IMPORTANT: You also have access to 'Past Answers' — a history of how the user has answered",
+    "similar questions before. If a form field question matches or is conceptually similar to",
+    "a question in the 'Past Answers' section, PRIORITIZE using that past answer over guessing",
+    "from the profile. The user has manually provided these answers, so they are the most accurate.",
+    "",
     "Return ONLY a single JSON object mapping each field's id to the best value.",
     "Rules:",
     "- For 'select' fields, the value MUST be one of the given options, copied exactly.",
     "- For 'radio'/'checkbox' fields, respond with the string \"yes\" if the profile supports",
     "  checking it, otherwise \"no\".",
     "- Never invent facts (employers, dates, degrees, skills, work authorization, salary) that",
-    "  are not present in the profile JSON.",
+    "  are not present in the profile JSON or Past Answers.",
     "- If a field cannot be confidently and honestly answered from the given profile, set its",
     `  value to the exact string "${JOBFILL_DEFAULTS.NEEDS_INPUT_TOKEN}".`,
     "- Output raw JSON only. No markdown fences, no commentary, no text outside the object.",
   ].join("\n");
 
-  const userText = JSON.stringify({ fields, profile });
+  const userText = JSON.stringify({ 
+    fields, 
+    profile,
+    pastAnswers: memoryContext 
+  });
 
   const raw = await callGemini({
     model: mappingModel,
     system,
     userText,
     maxTokens: JOBFILL_DEFAULTS.MAPPING_MAX_TOKENS,
+    isJson: true,
   });
 
   return jobfillParseJsonLoose(raw);
@@ -108,10 +163,20 @@ async function handleMapFields(fields, profile) {
 async function handleWriteAnswer(question, profile, jobContext) {
   const { writingModel } = await getConfig();
 
+  // Fetch user memory for RAG-based learning
+  const memory = await getUserMemory();
+  const memoryContext = formatMemoryForPrompt(memory);
+
   const system = [
     "You are drafting one short answer to a job application question on behalf of a candidate,",
     "using ONLY the facts in the candidate's profile JSON below. Do not fabricate employers,",
     "projects, dates, or skills that are not present in the profile.",
+    "",
+    "IMPORTANT: You also have access to 'Past Answers' — a history of how the user has answered",
+    "similar questions before. If this question matches or is conceptually similar to a question",
+    "in the 'Past Answers' section, USE that past answer as your primary source. The user has",
+    "manually crafted these answers, so they represent the user's preferred way of responding.",
+    "",
     "Keep the tone professional, first person, and concise — match the answer's length to what",
     "the question is asking, typically 2-5 sentences.",
     "If the question is about salary expectations, visa or work-authorization status, notice",
@@ -120,7 +185,12 @@ async function handleWriteAnswer(question, profile, jobContext) {
     "Output the answer text only. No preamble, no quotation marks around it.",
   ].join("\n");
 
-  const userText = JSON.stringify({ question, profile, jobPostingContext: jobContext || "" });
+  const userText = JSON.stringify({ 
+    question, 
+    profile, 
+    jobPostingContext: jobContext || "",
+    pastAnswers: memoryContext
+  });
 
   const answer = await callGemini({
     model: writingModel,
@@ -142,11 +212,126 @@ async function handleTestApiKey() {
 }
 
 function jobfillParseJsonLoose(raw) {
-  const trimmed = raw.trim().replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "");
+  const match = String(raw).match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const trimmed = match ? match[1].trim() : String(raw).trim();
   try {
     return JSON.parse(trimmed);
   } catch (err) {
     console.error("JobFill: failed to parse model JSON:", trimmed);
     return {};
   }
+}
+
+async function handleChooseResume(jobContext) {
+  const { [JOBFILL_DEFAULTS.STORAGE_KEYS.RESUMES]: resumes } = await chrome.storage.local.get(JOBFILL_DEFAULTS.STORAGE_KEYS.RESUMES);
+  if (!resumes || resumes.length === 0) return null;
+
+  if (resumes.length === 1) {
+    return resumes[0];
+  }
+
+  const { mappingModel } = await getConfig();
+  const system = [
+    "You are an assistant helping a candidate pick the best resume for a job.",
+    "You will receive the job description and a list of available resumes (each with an id and a target role).",
+    "Return ONLY a single JSON object with a single key 'bestResumeId' containing the id of the best resume.",
+    "If none match well, pick the most generic one or just the first one.",
+    "Output raw JSON only."
+  ].join("\n");
+
+  const resumeList = resumes.map(r => ({ id: r.id, role: r.role, filename: r.filename }));
+  const userText = JSON.stringify({ jobDescription: jobContext || "Generic Application", availableResumes: resumeList });
+
+  const raw = await callGemini({
+    model: mappingModel,
+    system,
+    userText,
+    maxTokens: 50,
+    isJson: true,
+  });
+  
+  const parsed = jobfillParseJsonLoose(raw);
+  const bestId = parsed.bestResumeId;
+  const match = resumes.find(r => r.id === bestId) || resumes[0];
+  return match;
+}
+
+
+// ---------- Continual Learning / Memory Functions ----------
+
+/**
+ * Retrieve user memory from storage
+ */
+async function getUserMemory() {
+  const key = JOBFILL_DEFAULTS.STORAGE_KEYS.USER_MEMORY;
+  const { [key]: memory } = await chrome.storage.local.get(key);
+  return memory || {};
+}
+
+/**
+ * Format memory for inclusion in AI prompts (RAG approach)
+ * Converts the memory object into a readable format for the AI
+ */
+function formatMemoryForPrompt(memory) {
+  const entries = Object.entries(memory);
+  if (entries.length === 0) {
+    return "No past answers available yet.";
+  }
+
+  // Sort by most recently used
+  const sorted = entries.sort((a, b) => 
+    new Date(b[1].lastUsed) - new Date(a[1].lastUsed)
+  );
+
+  // Format as a list of Q&A pairs, limit to top 100 most relevant
+  const formatted = sorted.slice(0, 100).map(([question, data]) => {
+    return `Q: ${question}\nA: ${data.answer}`;
+  }).join("\n\n");
+
+  return formatted;
+}
+
+/**
+ * Get memory statistics for the UI
+ */
+async function handleGetMemoryStats() {
+  const memory = await getUserMemory();
+  const entries = Object.entries(memory);
+  
+  return {
+    totalEntries: entries.length,
+    oldestEntry: entries.length > 0 
+      ? entries.reduce((oldest, [_, data]) => 
+          new Date(data.lastUsed) < new Date(oldest) ? data.lastUsed : oldest, 
+          entries[0][1].lastUsed
+        )
+      : null,
+    newestEntry: entries.length > 0
+      ? entries.reduce((newest, [_, data]) => 
+          new Date(data.lastUsed) > new Date(newest) ? data.lastUsed : newest,
+          entries[0][1].lastUsed
+        )
+      : null,
+  };
+}
+
+/**
+ * Delete a specific memory entry
+ */
+async function handleDeleteMemoryEntry(question) {
+  const key = JOBFILL_DEFAULTS.STORAGE_KEYS.USER_MEMORY;
+  const memory = await getUserMemory();
+  
+  if (memory[question]) {
+    delete memory[question];
+    await chrome.storage.local.set({ [key]: memory });
+  }
+}
+
+/**
+ * Clear all memory
+ */
+async function handleClearMemory() {
+  const key = JOBFILL_DEFAULTS.STORAGE_KEYS.USER_MEMORY;
+  await chrome.storage.local.set({ [key]: {} });
 }

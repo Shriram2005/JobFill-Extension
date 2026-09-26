@@ -97,3 +97,27 @@ button.secondary:hover { border-color: #3a3f4b; }
 .status.error { color: #f87171; }
 
 .footnote { color: #6b7280; font-size: 12px; text-align: center; margin-top: 24px; }
+
+#resumeList {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+}
+
+#resumeList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #0b0d11;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+#resumeList li strong {
+  color: #5eead4;
+  font-weight: 600;
+  margin-right: 8px;
+}

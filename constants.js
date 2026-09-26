@@ -4,11 +4,11 @@
 const JOBFILL_DEFAULTS = {
   // Cheapest/fastest current tier — used for field-classification/mapping,
   // which is closer to matching a label to a value than to writing.
-  MAPPING_MODEL: "gemini-2.5-flash",
+  MAPPING_MODEL: "gemini-3.5-flash-lite",
 
   // Best speed/quality tradeoff — used only for actual writing (tailored
   // bullet points, short cover-letter-style answers), once per job.
-  WRITING_MODEL: "gemini-2.5-pro",
+  WRITING_MODEL: "gemini-3.5-flash-lite",
 
   API_URL: "https://generativelanguage.googleapis.com/v1beta/models",
 
@@ -26,7 +26,10 @@ const JOBFILL_DEFAULTS = {
     MAPPING_MODEL: "jobfill_mapping_model",
     WRITING_MODEL: "jobfill_writing_model",
     LOG: "jobfill_log",
+    RESUMES: "jobfill_resumes",
+    USER_MEMORY: "jobfill_user_memory", // Continual learning memory
   },
 
   MAX_LOG_ENTRIES: 200,
+  MAX_MEMORY_ENTRIES: 500, // Maximum number of learned Q&A pairs
 };

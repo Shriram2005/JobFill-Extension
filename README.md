@@ -4,6 +4,39 @@ A Chrome extension that fills job application forms from your `profile.json`.
 It matches obvious fields locally for free, asks Gemini only for what's left,
 and **never submits anything for you.**
 
+## 🆕 Continual Learning Feature
+
+JobFill now includes a **Memory System** that learns from your manual inputs using a RAG (Retrieval-Augmented Generation) approach:
+
+### How It Works
+
+1. **Fill out forms** as usual with JobFill's AI assistance
+2. **Review and edit** any fields where you want to provide your own answer
+3. **Click "Save My Answers"** button (appears after filling)
+4. JobFill captures your manual inputs and stores them in local memory
+5. **Future applications** will prioritize your learned answers over AI guesses
+
+### Benefits
+
+- **Gets smarter over time** - The AI learns your preferences and writing style
+- **Consistent answers** - Same questions get same answers across applications
+- **Better accuracy** - Your manual inputs are prioritized over profile data
+- **Full control** - Manage, edit, or delete learned answers anytime
+
+### Managing Your Memory
+
+1. Go to **Options** → **View Learning Memory**
+2. See all questions and answers the AI has learned
+3. Search through your learned responses
+4. Delete incorrect entries or clear all memory
+
+### Technical Details
+
+- Stores question-answer pairs in `chrome.storage.local`
+- Maximum 500 learned entries (keeps most recently used)
+- Memory is injected into AI prompts as "Past Answers" context
+- Works with both field mapping (Flash) and essay writing (Pro) models
+
 ## Install (unpacked, for personal use)
 
 1. Open `chrome://extensions`.
