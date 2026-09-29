@@ -26,11 +26,21 @@
 
     let profile;
     try {
-      const res = await fetch(chrome.runtime.getURL("profile.json"));
-      profile = await res.json();
+      const stored = await chrome.storage.local.get(JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE);
+      if (
+        stored &&
+        stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE] &&
+        typeof stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE] === "object" &&
+        Object.keys(stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE]).length > 0
+      ) {
+        profile = stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE];
+      } else {
+        const res = await fetch(chrome.runtime.getURL("profile.json"));
+        profile = await res.json();
+      }
     } catch (e) {
       badge.setStatus(
-        "No profile found. Ensure profile.json is bundled in the extension.",
+        "No profile found. Please upload or save your profile in extension settings.",
         "error"
       );
       return;
@@ -213,11 +223,36 @@ function jobfillScanFields() {
       matchType = el.type || "text";
     }
 
+    // Detect group question for radios and checkboxes (e.g. from <fieldset><legend> or role="radiogroup")
+    let groupQuestion = "";
+    if (matchType === "radio" || matchType === "checkbox") {
+      const fieldset = el.closest("fieldset");
+      if (fieldset) {
+        const legend = fieldset.querySelector("legend");
+        if (legend && legend.textContent.trim()) {
+          groupQuestion = legend.textContent.trim();
+        }
+      }
+      if (!groupQuestion) {
+        const groupContainer = el.closest("[role='radiogroup'], [role='group']");
+        if (groupContainer) {
+          const groupLabel = groupContainer.getAttribute("aria-label") ||
+            (groupContainer.getAttribute("aria-labelledby") && document.getElementById(groupContainer.getAttribute("aria-labelledby"))?.textContent);
+          if (groupLabel) groupQuestion = groupLabel.trim();
+        }
+      }
+    }
+
+    const autocomplete = el.getAttribute("autocomplete") || "";
+
     const field = {
       id,
       tag: el.tagName.toLowerCase(),
       matchType,
-      label,
+      label: groupQuestion ? `${groupQuestion} [Option: ${label || el.value}]` : label,
+      rawLabel: label,
+      groupQuestion,
+      autocomplete,
       placeholder: el.getAttribute("placeholder") || "",
       name: el.getAttribute("name") || "",
     };
@@ -275,32 +310,72 @@ function jobfillFillField(field, value) {
   if (!el) return;
 
   if (field.matchType === "select") {
+    const valTrimmed = String(value).trim().toLowerCase();
     const match = Array.from(el.options).find(
-      (o) => o.textContent.trim().toLowerCase() === String(value).trim().toLowerCase()
+      (o) =>
+        o.textContent.trim().toLowerCase() === valTrimmed ||
+        o.value.trim().toLowerCase() === valTrimmed ||
+        (valTrimmed.length > 2 && o.textContent.trim().toLowerCase().includes(valTrimmed))
     );
     if (match) {
       el.value = match.value;
+      el.selectedIndex = match.index;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
     }
     return;
   }
 
   if (field.matchType === "radio" || field.matchType === "checkbox") {
-    const shouldCheck = /^(yes|true|y)$/i.test(String(value).trim());
+    const valStr = String(value).trim().toLowerCase();
+    const fieldVal = String(field.groupValue || el.value || "").trim().toLowerCase();
+    const fieldLabel = String(field.rawLabel || field.label || "").trim().toLowerCase();
+
+    const isYes = /^(yes|true|y|1)$/i.test(valStr);
+    const isNo = /^(no|false|n|0)$/i.test(valStr);
+
+    let shouldCheck = false;
+    if (isYes) {
+      if (fieldVal === "yes" || fieldVal === "true" || fieldVal === "1" || /^(yes|agree)$/i.test(fieldLabel)) {
+        shouldCheck = true;
+      }
+    } else if (isNo) {
+      if (fieldVal === "no" || fieldVal === "false" || fieldVal === "0" || /^(no|disagree)$/i.test(fieldLabel)) {
+        shouldCheck = true;
+      }
+    } else {
+      if (valStr === fieldVal || valStr === fieldLabel || fieldLabel.includes(valStr) || valStr.includes(fieldLabel)) {
+        shouldCheck = true;
+      }
+    }
+
+    if (field.matchType === "checkbox" && isYes) {
+      shouldCheck = true;
+    }
+
     if (shouldCheck) {
       el.checked = true;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
     }
     return;
   }
 
-  if (el.hasAttribute("contenteditable")) {
+  if (el.hasAttribute("contenteditable") || el.getAttribute("role") === "textbox") {
     el.textContent = value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
     return;
   }
 
-  el.value = value;
+  // React 16+ / Vue / modern framework controlled component prototype setter bypass
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  if (nativeSetter) {
+    nativeSetter.call(el, value);
+  } else {
+    el.value = value;
+  }
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }

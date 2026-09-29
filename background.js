@@ -119,7 +119,7 @@ async function handleMapFields(fields, profile) {
 
   // Fetch user memory for RAG-based learning
   const memory = await getUserMemory();
-  const memoryContext = formatMemoryForPrompt(memory);
+  const memoryContext = formatMemoryForPrompt(memory, fields);
 
   const system = [
     "You are filling out a job application form on behalf of a candidate.",
@@ -165,7 +165,7 @@ async function handleWriteAnswer(question, profile, jobContext) {
 
   // Fetch user memory for RAG-based learning
   const memory = await getUserMemory();
-  const memoryContext = formatMemoryForPrompt(memory);
+  const memoryContext = formatMemoryForPrompt(memory, question);
 
   const system = [
     "You are drafting one short answer to a job application question on behalf of a candidate,",
@@ -268,25 +268,88 @@ async function getUserMemory() {
   return memory || {};
 }
 
+const JOBFILL_STOP_WORDS = new Set([
+  "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+  "in", "on", "at", "to", "for", "of", "with", "by", "from", "up",
+  "about", "into", "over", "after", "your", "you", "my", "me", "our",
+  "we", "us", "this", "that", "these", "those", "and", "or", "but",
+  "if", "what", "which", "who", "whom", "how", "when", "where", "why",
+  "please", "enter", "select", "choose", "provide", "optional", "required"
+]);
+
+function jobfillTokenize(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !JOBFILL_STOP_WORDS.has(w));
+}
+
 /**
  * Format memory for inclusion in AI prompts (RAG approach)
- * Converts the memory object into a readable format for the AI
+ * Selects only the most relevant Q&A pairs matching the fields or question
  */
-function formatMemoryForPrompt(memory) {
+function formatMemoryForPrompt(memory, queryOrFields) {
   const entries = Object.entries(memory);
   if (entries.length === 0) {
     return "No past answers available yet.";
   }
 
-  // Sort by most recently used
-  const sorted = entries.sort((a, b) => 
-    new Date(b[1].lastUsed) - new Date(a[1].lastUsed)
-  );
+  let queryTokens = [];
+  let queryText = "";
+  if (typeof queryOrFields === "string") {
+    queryText = queryOrFields.toLowerCase();
+    queryTokens = jobfillTokenize(queryText);
+  } else if (Array.isArray(queryOrFields)) {
+    queryText = queryOrFields
+      .map((f) => `${f.label || ""} ${f.placeholder || ""}`)
+      .join(" ")
+      .toLowerCase();
+    queryTokens = jobfillTokenize(queryText);
+  }
 
-  // Format as a list of Q&A pairs, limit to top 100 most relevant
-  const formatted = sorted.slice(0, 100).map(([question, data]) => {
-    return `Q: ${question}\nA: ${data.answer}`;
-  }).join("\n\n");
+  const queryTokenSet = new Set(queryTokens);
+
+  // Score each entry based on exact phrase containment and token overlap
+  const scored = entries.map(([question, data]) => {
+    const qLower = question.toLowerCase();
+    const entryTokens = jobfillTokenize(qLower);
+
+    let score = 0;
+    if (queryText && (queryText.includes(qLower) || qLower.includes(queryText))) {
+      score += 15;
+    }
+
+    for (const t of entryTokens) {
+      if (queryTokenSet.has(t)) {
+        score += 3;
+      }
+    }
+
+    const timesUsed = data.timesUsed || 1;
+    score += Math.min(timesUsed * 0.5, 3);
+
+    return {
+      question,
+      data,
+      score,
+      lastUsed: new Date(data.lastUsed || 0).getTime(),
+    };
+  });
+
+  let relevant;
+  const matches = scored.filter((item) => item.score > 1);
+  if (matches.length > 0) {
+    matches.sort((a, b) => b.score - a.score || b.lastUsed - a.lastUsed);
+    relevant = matches.slice(0, 15);
+  } else {
+    scored.sort((a, b) => b.lastUsed - a.lastUsed);
+    relevant = scored.slice(0, 10);
+  }
+
+  const formatted = relevant
+    .map(({ question, data }) => `Q: ${question}\nA: ${data.answer}`)
+    .join("\n\n");
 
   return formatted;
 }

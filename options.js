@@ -29,7 +29,15 @@ async function loadExisting() {
   ]);
 
   if (stored[K.API_KEY]) apiKeyInput.value = stored[K.API_KEY];
-  if (stored[K.PROFILE]) profileText.value = JSON.stringify(stored[K.PROFILE], null, 2);
+  if (stored[K.PROFILE]) {
+    profileText.value = JSON.stringify(stored[K.PROFILE], null, 2);
+  } else {
+    try {
+      const res = await fetch(chrome.runtime.getURL("profile.json"));
+      const bundled = await res.json();
+      profileText.value = JSON.stringify(bundled, null, 2);
+    } catch (_) {}
+  }
   mappingModelInput.value = stored[K.MAPPING_MODEL] || JOBFILL_DEFAULTS.MAPPING_MODEL;
   writingModelInput.value = stored[K.WRITING_MODEL] || JOBFILL_DEFAULTS.WRITING_MODEL;
   renderResumes(stored[K.RESUMES] || []);
