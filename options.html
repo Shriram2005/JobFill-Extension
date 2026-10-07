@@ -2,90 +2,460 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>JobFill — Settings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JobFill — Command Center & Settings</title>
   <link rel="stylesheet" href="options.css" />
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <span class="mark">J_</span>
-      <h1>JobFill settings</h1>
-    </header>
-
-    <section class="card">
-      <h2>Gemini API key</h2>
-      <p class="hint">
-        Stored only in this browser's local extension storage. Never sent anywhere except
-        directly to generativelanguage.googleapis.com. Get a key at
-        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.
-      </p>
-      <input type="password" id="apiKey" placeholder="AIza..." autocomplete="off" />
-      <div class="row">
-        <button id="saveKeyBtn" class="primary">Save key</button>
-        <button id="testKeyBtn" class="secondary">Test key</button>
-        <span id="keyStatus" class="status"></span>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="logo-box">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div class="brand-details">
+          <h2>JobFill</h2>
+          <span class="version-tag">Command Center</span>
+        </div>
       </div>
-    </section>
 
-    <section class="card">
-      <h2>Profile data</h2>
-      <p class="hint">Upload your profile.json, or paste/edit it directly below.</p>
-      <input type="file" id="profileFile" accept="application/json" />
-      <textarea id="profileText" rows="12" spellcheck="false" placeholder="{ ... your profile.json ... }"></textarea>
-      <div class="row">
-        <button id="saveProfileBtn" class="primary">Save profile</button>
-        <span id="profileStatus" class="status"></span>
-      </div>
-    </section>
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="tab-overview">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          <span>Overview</span>
+        </button>
 
-    <section class="card">
-      <h2>Resumes (PDF)</h2>
-      <p class="hint">Upload different resumes for different roles. JobFill will automatically pick the best one for each application.</p>
-      <ul id="resumeList" style="list-style:none; padding:0; margin:10px 0;"></ul>
-      <div class="row" style="margin-top:10px; display:flex; gap:10px;">
-        <input type="text" id="resumeRole" placeholder="Role (e.g. Frontend Developer)" style="flex:1;" />
-        <input type="file" id="resumeFile" accept="application/pdf" style="flex:1;" />
-      </div>
-      <div class="row" style="margin-top:10px;">
-        <button id="addResumeBtn" class="primary">Add Resume</button>
-        <span id="resumeStatus" class="status"></span>
-      </div>
-    </section>
+        <button class="nav-item" data-tab="tab-api">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
+          </svg>
+          <span>AI &amp; API Key</span>
+        </button>
 
-    <section class="card">
-      <h2>Models</h2>
-      <p class="hint">
-        Field mapping runs far more often than answer-writing, so it defaults to the cheaper,
-        faster tier. Change these if you'd rather trade cost for quality.
-      </p>
-      <label>Field mapping (cheap, frequent)</label>
-      <input type="text" id="mappingModel" />
-      <label>Written answers (better quality, called once per open question)</label>
-      <input type="text" id="writingModel" />
-      <div class="row">
-        <button id="saveModelsBtn" class="primary">Save models</button>
-        <span id="modelStatus" class="status"></span>
-      </div>
-    </section>
+        <button class="nav-item" data-tab="tab-profile">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          <span>Profile Studio</span>
+        </button>
 
-    <section class="card" style="border-color: #2a3741;">
-      <h2>🧠 Continual Learning</h2>
-      <p class="hint">
-        JobFill learns from your manual inputs! When you fill out forms, click "Save My Answers" 
-        to teach the AI how you prefer to answer questions. The AI will prioritize these learned 
-        answers in future applications.
-      </p>
-      <div class="row">
-        <button id="viewMemoryBtn" class="primary">View Learning Memory</button>
-        <span id="memoryCount" class="status" style="color: #5eead4;">Loading...</span>
-      </div>
-    </section>
+        <button class="nav-item" data-tab="tab-resumes">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          <span>Resume Vault</span>
+        </button>
 
-    <p class="footnote">
-      JobFill never clicks Submit/Apply for you, and it stops and asks you to solve any CAPTCHA
-      it finds. Always review a filled form before sending it.
-    </p>
+        <button class="nav-item" data-tab="tab-models">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>AI Models</span>
+        </button>
+
+        <button class="nav-item" data-tab="tab-memory">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04z"></path>
+            <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-2.04z"></path>
+          </svg>
+          <span>Continual Learning</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="security-chip">
+          <span class="chip-dot"></span>
+          <span>Local Storage Only</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- 1. OVERVIEW TAB -->
+      <section id="tab-overview" class="tab-pane active">
+        <header class="pane-header">
+          <div class="header-titles">
+            <h1>Command Center</h1>
+            <p>Welcome to JobFill. Monitor your assistant status, key readiness, and quick actions.</p>
+          </div>
+        </header>
+
+        <div class="grid-cards-3">
+          <div class="stat-card">
+            <div class="stat-icon-wrap icon-teal">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+            </div>
+            <div class="stat-details">
+              <span class="stat-label">AI Engine</span>
+              <span id="overviewKeyStatus" class="stat-value">Checking...</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon-wrap icon-cyan">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </div>
+            <div class="stat-details">
+              <span class="stat-label">Candidate Profile</span>
+              <span id="overviewProfileStatus" class="stat-value">Active</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon-wrap icon-purple">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"></path>
+              </svg>
+            </div>
+            <div class="stat-details">
+              <span class="stat-label">Learned Answers</span>
+              <span id="overviewMemoryStatus" class="stat-value">0 answers</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card highlight-panel">
+          <div class="panel-icon-col">⚡</div>
+          <div class="panel-text-col">
+            <h3>How JobFill works to assist your job hunt:</h3>
+            <div class="steps-flow">
+              <div class="step-item">
+                <span class="step-num">1</span>
+                <div>
+                  <strong>Local Rules (Instant &amp; Free)</strong>
+                  <p>Matches standard fields (name, email, phone, LinkedIn, GitHub) directly from your profile without calling any AI.</p>
+                </div>
+              </div>
+              <div class="step-item">
+                <span class="step-num">2</span>
+                <div>
+                  <strong>Gemini AI (Batched &amp; Smart)</strong>
+                  <p>Maps choice questions, dropdowns, and drafts short personalized essay responses using your candidate summary.</p>
+                </div>
+              </div>
+              <div class="step-item">
+                <span class="step-num">3</span>
+                <div>
+                  <strong>Human-in-the-Loop</strong>
+                  <p>Flags items requiring your personal touch, highlights what was filled, and <strong>never</strong> auto-submits.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-actions-bar">
+          <button class="primary-btn" id="overviewEditProfileBtn">Edit Profile</button>
+          <button class="secondary-btn" id="overviewTestKeyBtn">Test AI Key</button>
+          <button class="secondary-btn" id="overviewOpenMemoryBtn">View Learning Memory</button>
+        </div>
+      </section>
+
+      <!-- 2. AI & API KEY TAB -->
+      <section id="tab-api" class="tab-pane">
+        <header class="pane-header">
+          <div class="header-titles">
+            <h1>Gemini AI Configuration</h1>
+            <p>Connect your Gemini API key to enable intelligent field mapping and custom response drafting.</p>
+          </div>
+        </header>
+
+        <div class="panel-card">
+          <div class="card-section">
+            <label for="apiKey" class="field-label">Google Gemini API Key</label>
+            <p class="field-hint">
+              Stored 100% locally in your browser extension storage. Never transmitted to any third-party servers.
+              Get your free key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio ↗</a>.
+            </p>
+            
+            <div class="input-password-wrap">
+              <input type="password" id="apiKey" placeholder="AIzaSy..." autocomplete="off" />
+              <button type="button" id="toggleKeyVisibility" class="btn-toggle-eye" title="Show/Hide Key">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              </button>
+            </div>
+
+            <div class="actions-row">
+              <button id="saveKeyBtn" class="primary-btn">Save Key</button>
+              <button id="testKeyBtn" class="secondary-btn">
+                <span class="btn-spinner hidden" id="keySpinner"></span>
+                <span>Test Connection</span>
+              </button>
+              <span id="keyStatus" class="status-msg"></span>
+            </div>
+          </div>
+
+          <div class="info-callout">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            <div>
+              <strong>Why Gemini?</strong>
+              <p>Gemini 2.5 / 1.5 Flash provides ultra-fast field comprehension with generous free-tier limits, making application assistance cost-effective.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. PROFILE STUDIO TAB -->
+      <section id="tab-profile" class="tab-pane">
+        <header class="pane-header">
+          <div class="header-titles">
+            <h1>Candidate Profile Studio</h1>
+            <p>Customize the data JobFill uses to accurately complete applications.</p>
+          </div>
+          <div class="view-switch-pills">
+            <button class="pill-btn active" id="viewVisualBtn">✨ Visual Form</button>
+            <button class="pill-btn" id="viewJsonBtn">{ } Raw JSON</button>
+          </div>
+        </header>
+
+        <!-- Visual Form Mode -->
+        <div id="visualProfileView" class="profile-mode-view">
+          <div class="panel-card">
+            <h3 class="section-title">Personal Information</h3>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="profName">Full Name</label>
+                <input type="text" id="profName" placeholder="e.g. Shriram Mange" />
+              </div>
+              <div class="form-group">
+                <label for="profTitle">Professional Title / Headline</label>
+                <input type="text" id="profTitle" placeholder="e.g. Full Stack Developer" />
+              </div>
+              <div class="form-group">
+                <label for="profEmail">Email Address</label>
+                <input type="email" id="profEmail" placeholder="e.g. user@example.com" />
+              </div>
+              <div class="form-group">
+                <label for="profPhone">Phone Number</label>
+                <input type="tel" id="profPhone" placeholder="e.g. +1 555-0192" />
+              </div>
+              <div class="form-group">
+                <label for="profLocation">Location (City, State, Country)</label>
+                <input type="text" id="profLocation" placeholder="e.g. Nashik, Maharashtra, India" />
+              </div>
+              <div class="form-group">
+                <label for="profStatus">Work Availability / Status</label>
+                <input type="text" id="profStatus" placeholder="e.g. Available for Projects / Full-time" />
+              </div>
+            </div>
+
+            <h3 class="section-title" style="margin-top: 24px;">Links &amp; Socials</h3>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="profLinkedin">LinkedIn URL</label>
+                <input type="url" id="profLinkedin" placeholder="https://www.linkedin.com/in/..." />
+              </div>
+              <div class="form-group">
+                <label for="profGithub">GitHub URL</label>
+                <input type="url" id="profGithub" placeholder="https://github.com/..." />
+              </div>
+              <div class="form-group">
+                <label for="profWebsite">Portfolio / Personal Website</label>
+                <input type="url" id="profWebsite" placeholder="https://myportfolio.me" />
+              </div>
+              <div class="form-group">
+                <label for="profTelegram">Telegram / Alternate Contact</label>
+                <input type="text" id="profTelegram" placeholder="@username" />
+              </div>
+            </div>
+
+            <h3 class="section-title" style="margin-top: 24px;">Summary &amp; Experience Metrics</h3>
+            <div class="form-group">
+              <label for="profSummary">Professional Summary / Bio</label>
+              <textarea id="profSummary" rows="4" placeholder="Brief elevator pitch used when drafting answers to open questions..."></textarea>
+            </div>
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="profExpYears">Years of Experience</label>
+                <input type="text" id="profExpYears" placeholder="e.g. 2+" />
+              </div>
+              <div class="form-group">
+                <label for="profProjects">Projects Completed</label>
+                <input type="text" id="profProjects" placeholder="e.g. 15+" />
+              </div>
+            </div>
+
+            <h3 class="section-title" style="margin-top: 24px;">Skills &amp; Technologies</h3>
+            <div class="form-group">
+              <label for="profTechSkills">Technologies (comma-separated)</label>
+              <textarea id="profTechSkills" rows="2" placeholder="React, Node.js, Python, Kotlin, MySQL, Tailwind CSS..."></textarea>
+            </div>
+            <div class="form-group">
+              <label for="profCoreSkills">Core Competencies (comma-separated)</label>
+              <textarea id="profCoreSkills" rows="2" placeholder="Full-Stack Web Development, Clean Architecture, Problem Solving..."></textarea>
+            </div>
+
+            <div class="actions-row sticky-actions">
+              <button id="saveVisualProfileBtn" class="primary-btn">Save Profile</button>
+              <span id="visualProfileStatus" class="status-msg"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw JSON Mode -->
+        <div id="jsonProfileView" class="profile-mode-view hidden">
+          <div class="panel-card">
+            <div class="code-toolbar">
+              <div class="toolbar-left">
+                <label for="profileFile" class="file-upload-btn">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                  <span>Upload profile.json</span>
+                </label>
+                <input type="file" id="profileFile" accept="application/json" class="hidden" />
+                <button type="button" id="formatJsonBtn" class="ghost-btn">Format JSON</button>
+                <button type="button" id="copyJsonBtn" class="ghost-btn">Copy JSON</button>
+              </div>
+              <button type="button" id="resetDefaultBtn" class="ghost-btn danger-hover">Reset to Default</button>
+            </div>
+
+            <textarea id="profileText" rows="18" spellcheck="false" placeholder="{ ... your profile.json ... }"></textarea>
+
+            <div class="actions-row">
+              <button id="saveProfileBtn" class="primary-btn">Save profile</button>
+              <span id="profileStatus" class="status-msg"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. RESUME VAULT TAB -->
+      <section id="tab-resumes" class="tab-pane">
+        <header class="pane-header">
+          <div class="header-titles">
+            <h1>Resume Vault</h1>
+            <p>Upload role-specific resumes. JobFill's AI analyzes the job posting and automatically selects the most relevant resume.</p>
+          </div>
+        </header>
+
+        <div class="panel-card">
+          <div class="upload-dropzone" id="resumeDropzone">
+            <div class="dropzone-icon">📄</div>
+            <h3>Drag &amp; Drop your Resume (PDF)</h3>
+            <p>or click to browse from your computer</p>
+            <input type="file" id="resumeFile" accept="application/pdf" class="hidden" />
+          </div>
+
+          <div class="resume-role-input-wrap">
+            <label for="resumeRole" class="field-label">Target Role / Specialty for this Resume</label>
+            <div class="role-row">
+              <input type="text" id="resumeRole" placeholder="e.g. Android Developer / Full Stack Engineer" />
+              <button id="addResumeBtn" class="primary-btn">Add Resume</button>
+            </div>
+            <span id="resumeStatus" class="status-msg"></span>
+          </div>
+
+          <h3 class="section-title" style="margin-top: 24px;">Uploaded Resumes</h3>
+          <ul id="resumeList" class="resume-cards-list"></ul>
+        </div>
+      </section>
+
+      <!-- 5. AI MODELS TAB -->
+      <section id="tab-models" class="tab-pane">
+        <header class="pane-header">
+          <div class="header-titles">
+            <h1>Model Tuning</h1>
+            <p>Tune which Gemini tier handles field mapping vs. open essay writing to balance speed and quality.</p>
+          </div>
+        </header>
+
+        <div class="panel-card">
+          <div class="model-tier-card">
+            <div class="tier-badge">FAST &amp; EFFICIENT</div>
+            <h3>Field Mapping Tier</h3>
+            <p class="field-hint">
+              Used to match unhandled dropdowns, radio buttons, and short text inputs to your profile. Runs once per form.
+            </p>
+            <div class="form-group">
+              <label for="mappingModel">Model Name</label>
+              <input type="text" id="mappingModel" />
+            </div>
+            <div class="preset-pills">
+              <span class="preset-label">Presets:</span>
+              <button class="preset-pill" data-target="mappingModel" data-val="gemini-2.5-flash">gemini-2.5-flash (Recommended)</button>
+              <button class="preset-pill" data-target="mappingModel" data-val="gemini-1.5-flash">gemini-1.5-flash</button>
+            </div>
+          </div>
+
+          <div class="model-tier-card" style="margin-top: 16px;">
+            <div class="tier-badge tier-quality">DEEP REASONING</div>
+            <h3>Written Answers Tier</h3>
+            <p class="field-hint">
+              Used when drafting custom cover-letter-style responses for open questions (e.g., "Why are you interested in this position?").
+            </p>
+            <div class="form-group">
+              <label for="writingModel">Model Name</label>
+              <input type="text" id="writingModel" />
+            </div>
+            <div class="preset-pills">
+              <span class="preset-label">Presets:</span>
+              <button class="preset-pill" data-target="writingModel" data-val="gemini-2.5-flash">gemini-2.5-flash (Fast &amp; Crisp)</button>
+              <button class="preset-pill" data-target="writingModel" data-val="gemini-1.5-pro">gemini-1.5-pro (High Quality)</button>
+            </div>
+          </div>
+
+          <div class="actions-row" style="margin-top: 20px;">
+            <button id="saveModelsBtn" class="primary-btn">Save Models</button>
+            <span id="modelStatus" class="status-msg"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. CONTINUAL LEARNING TAB -->
+      <section id="tab-memory" class="tab-pane">
+        <header class="pane-header">
+          <div class="header-titles">
+            <h1>🧠 Continual Learning Memory</h1>
+            <p>JobFill observes your manual corrections and builds a personal Q&amp;A memory bank that makes future applications faster.</p>
+          </div>
+        </header>
+
+        <div class="panel-card memory-highlight-card">
+          <div class="memory-stat-row">
+            <div>
+              <h2 id="memoryCount">Loading answers...</h2>
+              <p class="field-hint">Learned responses are automatically injected into future applications with top priority over generic profile data.</p>
+            </div>
+            <button id="viewMemoryBtn" class="primary-btn">Open Memory Dashboard ↗</button>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
+
+  <!-- Global Toast Notification -->
+  <div id="toast" class="toast hidden"></div>
 
   <script src="constants.js"></script>
   <script src="options.js"></script>

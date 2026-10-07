@@ -19,6 +19,15 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "commands": {
+    "fill_application": {
+      "suggested_key": {
+        "default": "Alt+Shift+F",
+        "mac": "Alt+Shift+F"
+      },
+      "description": "Fill the active job application form"
+    }
+  },
   "background": {
     "service_worker": "background.js"
   },

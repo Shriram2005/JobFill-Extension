@@ -3,24 +3,34 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JobFill — Learning Memory</title>
+  <title>JobFill — Continual Learning Memory</title>
   <link rel="stylesheet" href="memory.css">
 </head>
 <body>
   <div class="wrap">
-    <!-- Header -->
+    <!-- Top Navigation Header -->
     <header class="top-nav">
       <div class="nav-left">
-        <span class="mark">J_</span>
-        <h1>Learning Memory</h1>
-        <span class="badge" id="totalBadge">0 learned</span>
+        <div class="logo-box">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div class="header-titles">
+          <h1>Learning Memory Bank</h1>
+          <span class="badge" id="totalBadge">0 learned</span>
+        </div>
       </div>
       <div class="nav-actions">
-        <button id="addEntryBtn" class="btn btn-primary" title="Add a custom Q&A to memory">
-          <svg class="icon" viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
-            <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/>
+        <button id="addEntryBtn" class="btn btn-primary" title="Add a custom Q&amp;A to memory">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
-          Add Entry
+          <span>Add Entry</span>
+        </button>
+        <button id="testMatcherBtn" class="btn btn-secondary" title="Test question matching against your memory">
+          <span>🎯 Test Matcher</span>
         </button>
         <button id="exportBtn" class="btn btn-secondary" title="Export memory to JSON">Export</button>
         <button id="importBtn" class="btn btn-secondary" title="Import memory from JSON">Import</button>
@@ -30,7 +40,46 @@
       </div>
     </header>
 
-    <!-- Collapsible Add/Create Drawer -->
+    <!-- Stats Hero Banner -->
+    <section class="stats-banner">
+      <div class="stat-pill-item">
+        <span class="stat-num" id="statTotalEntries">0</span>
+        <span class="stat-sub">Learned Answers</span>
+      </div>
+      <div class="stat-separator"></div>
+      <div class="stat-pill-item">
+        <span class="stat-num" id="statTotalReuses">0</span>
+        <span class="stat-sub">Autofills Powered</span>
+      </div>
+      <div class="stat-separator"></div>
+      <div class="stat-pill-item">
+        <span class="stat-num" id="statTimeSaved">0m</span>
+        <span class="stat-sub">Time Saved</span>
+      </div>
+      <div class="stat-separator"></div>
+      <div class="stat-pill-item">
+        <span class="stat-num status-accent" id="statEfficiency">100%</span>
+        <span class="stat-sub">Private &amp; Local</span>
+      </div>
+    </section>
+
+    <!-- Interactive Test Matcher Drawer -->
+    <section class="drawer card hidden" id="testMatcherDrawer">
+      <div class="drawer-header">
+        <h3>🎯 Question Match Simulator</h3>
+        <button id="closeMatcherBtn" class="icon-btn" title="Close">×</button>
+      </div>
+      <div class="drawer-body">
+        <p class="drawer-hint">Paste any question from a job form below to see which learned memory answer JobFill matches and with what priority score:</p>
+        <div class="form-group">
+          <input type="text" id="testQuestionInput" placeholder="e.g. Do you have experience with Kotlin and Jetpack Compose?" autocomplete="off" />
+        </div>
+        <button id="runMatchTestBtn" class="btn btn-primary" style="margin-top: 8px;">Simulate Matching</button>
+        <div id="testMatchResult" class="test-result-box hidden"></div>
+      </div>
+    </section>
+
+    <!-- Add/Create Drawer -->
     <section class="drawer card hidden" id="addDrawer">
       <div class="drawer-header">
         <h3 id="drawerTitle">Add Learned Answer</h3>
@@ -65,13 +114,14 @@
     <!-- Toolbar Strip (Search + Sort + Stats) -->
     <div class="toolbar card">
       <div class="search-box">
-        <svg class="search-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
-          <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+        <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
         <input 
           type="text" 
           id="searchInput" 
-          placeholder="Filter questions or answers..." 
+          placeholder="Filter questions, answers, or keywords..." 
           autocomplete="off"
         />
         <button id="clearSearchBtn" class="icon-btn clear-search hidden" title="Clear search">×</button>
@@ -97,7 +147,7 @@
 
     <!-- Memory List Container -->
     <div id="memoryList" class="memory-list">
-      <!-- Generated memory items appear here -->
+      <!-- Generated memory cards appear here -->
     </div>
 
     <!-- Empty State -->

@@ -398,3 +398,21 @@ async function handleClearMemory() {
   const key = JOBFILL_DEFAULTS.STORAGE_KEYS.USER_MEMORY;
   await chrome.storage.local.set({ [key]: {} });
 }
+
+// Global Keyboard Shortcut Listener
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "fill_application") {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.id && /^https?:\/\//i.test(tab.url || "")) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["constants.js", "rules.js", "content.js"],
+        });
+      }
+    } catch (err) {
+      console.error("JobFill shortcut error:", err);
+    }
+  }
+});
+

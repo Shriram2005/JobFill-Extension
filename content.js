@@ -169,7 +169,9 @@
 
     badge.setStatus(
       `Done — ${counts.rule} filled locally, ${counts.ai} filled by AI, ${counts.manual} need your input. Review before you submit.`,
-      "done"
+      "done",
+      counts,
+      fields
     );
 
     await jobfillAppendLog({
@@ -401,20 +403,32 @@ function jobfillFillFile(field, resume) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+window._jobfillManualFields = [];
+window._jobfillHighlightedElements = [];
+
 function jobfillMarkFilled(field, source) {
   const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
   if (!el) return;
-  el.style.outline = source === "rule" ? "2px solid #5eead4" : "2px solid #60a5fa";
-  el.style.outlineOffset = "1px";
-  el.title = source === "rule" ? "Filled by JobFill (local match)" : "Filled by JobFill (AI)";
+  el.setAttribute("data-jobfill-filled", source);
+  const color = source === "rule" ? "#10b981" : "#38bdf8";
+  const glow = source === "rule" ? "rgba(16, 185, 129, 0.3)" : "rgba(56, 189, 248, 0.3)";
+  el.style.setProperty("box-shadow", `0 0 0 2px ${color}, 0 0 12px ${glow}`, "important");
+  el.style.setProperty("border-radius", "5px", "important");
+  el.title = source === "rule" 
+    ? "✓ Filled by JobFill (auto-matched from your profile)" 
+    : "🤖 Filled by JobFill (tailored with Gemini AI)";
+  window._jobfillHighlightedElements.push(el);
 }
 
 function jobfillMarkManual(field, reason) {
   const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
   if (!el) return;
-  el.style.outline = "2px solid #fb923c";
-  el.style.outlineOffset = "1px";
-  el.title = `JobFill: ${reason}`;
+  el.setAttribute("data-jobfill-manual", "true");
+  el.style.setProperty("box-shadow", "0 0 0 2px #f59e0b, 0 0 14px rgba(245, 158, 11, 0.35)", "important");
+  el.style.setProperty("border-radius", "5px", "important");
+  el.title = `⚠️ JobFill review needed: ${reason}`;
+  window._jobfillManualFields.push({ el, field, reason });
+  window._jobfillHighlightedElements.push(el);
 }
 
 // ---------- CAPTCHA detection ----------
@@ -503,148 +517,471 @@ async function jobfillAppendLog(entry) {
   await chrome.storage.local.set({ [key]: log.slice(0, JOBFILL_DEFAULTS.MAX_LOG_ENTRIES) });
 }
 
-// ---------- on-page status badge (shadow DOM, isolated from page styles) ----------
+// ---------- on-page JobFill Copilot Dock (Shadow DOM, isolated from page styles) ----------
+
+let _jobfillActiveDock = null;
 
 function jobfillCreateBadge() {
+  if (_jobfillActiveDock && _jobfillActiveDock.remove) {
+    _jobfillActiveDock.remove();
+  }
+
   const host = document.createElement("div");
+  host.setAttribute("data-jobfill-copilot", "true");
   host.style.position = "fixed";
-  host.style.bottom = "16px";
-  host.style.right = "16px";
+  host.style.bottom = "18px";
+  host.style.right = "18px";
   host.style.zIndex = "2147483647";
   document.documentElement.appendChild(host);
 
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
   style.textContent = `
-    .box {
-      font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: #0f1115;
-      color: #e6e6e6;
-      border: 1px solid #2a2e37;
-      border-left: 3px solid #5eead4;
-      border-radius: 8px;
-      padding: 10px 14px;
-      max-width: 320px;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    .copilot-card {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+      font-size: 13px;
+      line-height: 1.45;
+      background: rgba(14, 18, 27, 0.94);
+      color: #f1f5f9;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 14px 16px;
+      width: 320px;
+      box-shadow: 0 10px 30px -4px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
     }
-    .box.warn { border-left-color: #fb923c; }
-    .box.error { border-left-color: #f87171; }
-    .box.done { border-left-color: #5eead4; }
-    .label {
-      font-family: "SFMono-Regular", Consolas, monospace;
-      font-size: 11px;
-      color: #8b93a3;
-      letter-spacing: 0.02em;
-      margin-bottom: 4px;
+
+    .copilot-card.minimized {
+      display: none;
     }
-  `;
-  const box = document.createElement("div");
-  box.className = "box";
-  box.innerHTML = `<div class="label">JobFill</div><div class="msg"></div>`;
-  shadow.appendChild(style);
-  shadow.appendChild(box);
 
-  return {
-    setStatus(text, kind) {
-      box.className = `box${kind ? " " + kind : ""}`;
-      box.querySelector(".msg").textContent = text;
-      if (kind === "done") {
-        setTimeout(() => host.remove(), 15000);
-      }
-    },
-  };
-}
-
-
-// ---------- Continual Learning / Memory System ----------
-
-/**
- * Inject a "Save My Answers" button that captures user's manual inputs
- * and stores them in the memory system for future use.
- */
-function jobfillInjectLearningButton(fields) {
-  // Check if button already exists
-  if (document.querySelector('[data-jobfill-learning-btn]')) return;
-
-  const host = document.createElement("div");
-  host.setAttribute("data-jobfill-learning-btn", "true");
-  host.style.position = "fixed";
-  host.style.bottom = "80px";
-  host.style.right = "16px";
-  host.style.zIndex = "2147483646";
-  document.documentElement.appendChild(host);
-
-  const shadow = host.attachShadow({ mode: "open" });
-  const style = document.createElement("style");
-  style.textContent = `
-    .learn-btn {
-      font: 13px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: #5eead4;
-      color: #0f1115;
-      border: none;
-      border-radius: 8px;
-      padding: 12px 20px;
+    /* Floating Orb (Minimized State) */
+    .copilot-orb {
+      display: none;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #059669 0%, #0284c7 100%);
+      color: #fff;
+      box-shadow: 0 4px 18px rgba(6, 182, 212, 0.45);
       cursor: pointer;
-      box-shadow: 0 4px 15px rgba(94, 234, 212, 0.3);
-      transition: all 0.3s ease;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      transition: transform 0.2s ease;
+    }
+
+    .copilot-orb:hover {
+      transform: scale(1.08);
+    }
+
+    .copilot-orb.visible {
+      display: flex;
+    }
+
+    .orb-badge {
+      position: absolute;
+      top: -3px;
+      right: -3px;
+      background: #f59e0b;
+      color: #000;
+      font-size: 9px;
+      font-weight: 800;
+      border-radius: 999px;
+      min-width: 16px;
+      height: 16px;
+      line-height: 16px;
+      text-align: center;
+      padding: 0 3px;
+    }
+
+    /* Header */
+    .card-header {
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      transition: background 0.2s;
+    }
+    .status-dot.warn { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+    .status-dot.error { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+    .status-dot.busy {
+      background: #38bdf8;
+      box-shadow: 0 0 8px #38bdf8;
+      animation: pulse 1s infinite alternate;
+    }
+
+    .brand-title {
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: -0.2px;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .brand-badge {
+      font-size: 9px;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: rgba(45, 212, 191, 0.15);
+      color: #2dd4bf;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .ctrl-btn {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      font-size: 13px;
+      transition: all 0.15s ease;
+    }
+    .ctrl-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    /* Message */
+    .status-msg {
+      color: #cbd5e1;
+      font-size: 12px;
+      line-height: 1.4;
+      margin-bottom: 10px;
+    }
+
+    /* Metric Badges */
+    .metric-strip {
+      display: none;
+      gap: 6px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .metric-strip.visible {
+      display: flex;
+    }
+
+    .pill {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+    }
+    .pill.rule { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .pill.ai { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+    .pill.manual { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    /* Actions Grid */
+    .action-grid {
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .action-grid.visible {
+      display: flex;
+    }
+
+    .copilot-btn {
+      width: 100%;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
       font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
     }
-    .learn-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(94, 234, 212, 0.5);
-      background: #7ff2e0;
+
+    .btn-review-next {
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.4);
     }
-    .learn-btn:active {
-      transform: translateY(0);
+    .btn-review-next:hover {
+      background: rgba(245, 158, 11, 0.28);
     }
-    .learn-btn.learning {
-      background: #60a5fa;
-      color: white;
+
+    .btn-learn {
+      background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(6, 182, 212, 0.3);
     }
-    .icon {
-      width: 16px;
-      height: 16px;
+    .btn-learn:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+    .btn-learn.success {
+      background: #10b981;
+    }
+
+    .utility-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 4px;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .subtle-btn {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 2px 4px;
+      transition: color 0.15s ease;
+    }
+    .subtle-btn:hover {
+      color: #fff;
+    }
+
+    @keyframes pulse {
+      from { opacity: 0.6; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1.15); }
     }
   `;
 
-  const button = document.createElement("button");
-  button.className = "learn-btn";
-  button.innerHTML = `
-    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-      <polyline points="17 21 17 13 7 13 7 21"/>
-      <polyline points="7 3 7 8 15 8"/>
-    </svg>
-    <span>Save My Answers</span>
+  // HTML Structure
+  const root = document.createElement("div");
+  root.innerHTML = `
+    <!-- Expanded Floating HUD Card -->
+    <div class="copilot-card" id="card">
+      <div class="card-header">
+        <div class="brand-wrap">
+          <div class="status-dot busy" id="dot"></div>
+          <span class="brand-title">JobFill <span class="brand-badge">Copilot</span></span>
+        </div>
+        <div class="header-controls">
+          <button class="ctrl-btn" id="minBtn" title="Minimize to small orb">_</button>
+          <button class="ctrl-btn" id="closeBtn" title="Dismiss Copilot">×</button>
+        </div>
+      </div>
+
+      <div class="status-msg" id="msg">Scanning form fields…</div>
+
+      <div class="metric-strip" id="metricStrip">
+        <span class="pill rule" id="pillRule">⚡ 0 local</span>
+        <span class="pill ai" id="pillAi">🤖 0 AI</span>
+        <span class="pill manual" id="pillManual">⚠️ 0 review</span>
+      </div>
+
+      <div class="action-grid" id="actionGrid">
+        <button class="copilot-btn btn-review-next" id="reviewNextBtn">
+          <span>🎯 Review Next Field (<span id="reviewRemain">0</span>)</span>
+        </button>
+        <button class="copilot-btn btn-learn" id="saveAnswersBtn">
+          <span>💾 Save My Answers</span>
+        </button>
+        <div class="utility-row">
+          <button class="subtle-btn" id="toggleHighlightsBtn">Toggle Highlights</button>
+          <span style="font-size: 10px; color: #64748b;">Never auto-submits</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collapsed Floating Orb -->
+    <div class="copilot-orb" id="orb" title="JobFill Copilot (Click to open)">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+      </svg>
+      <span class="orb-badge" id="orbBadge">0</span>
+    </div>
   `;
 
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    button.classList.add("learning");
-    button.querySelector("span").textContent = "Learning...";
+  shadow.appendChild(style);
+  shadow.appendChild(root);
 
-    try {
-      await jobfillCaptureUserInputs(fields);
-      button.querySelector("span").textContent = "✓ Learned!";
+  // References inside shadow root
+  const card = shadow.getElementById("card");
+  const orb = shadow.getElementById("orb");
+  const orbBadge = shadow.getElementById("orbBadge");
+  const dot = shadow.getElementById("dot");
+  const msg = shadow.getElementById("msg");
+  const minBtn = shadow.getElementById("minBtn");
+  const closeBtn = shadow.getElementById("closeBtn");
+  const metricStrip = shadow.getElementById("metricStrip");
+  const pillRule = shadow.getElementById("pillRule");
+  const pillAi = shadow.getElementById("pillAi");
+  const pillManual = shadow.getElementById("pillManual");
+  const actionGrid = shadow.getElementById("actionGrid");
+  const reviewNextBtn = shadow.getElementById("reviewNextBtn");
+  const reviewRemain = shadow.getElementById("reviewRemain");
+  const saveAnswersBtn = shadow.getElementById("saveAnswersBtn");
+  const toggleHighlightsBtn = shadow.getElementById("toggleHighlightsBtn");
+
+  let currentFields = [];
+  let currentManualIndex = 0;
+  let outlinesVisible = true;
+
+  // Minimize / Expand logic
+  minBtn.addEventListener("click", () => {
+    card.classList.add("minimized");
+    orb.classList.add("visible");
+  });
+
+  orb.addEventListener("click", () => {
+    orb.classList.remove("visible");
+    card.classList.remove("minimized");
+  });
+
+  closeBtn.addEventListener("click", () => {
+    host.remove();
+  });
+
+  // Review Next Field Navigation
+  reviewNextBtn.addEventListener("click", () => {
+    const list = window._jobfillManualFields || [];
+    if (list.length === 0) {
+      msg.textContent = "All manual fields have been reviewed! 🎉";
+      reviewNextBtn.style.display = "none";
+      return;
+    }
+
+    const item = list[currentManualIndex % list.length];
+    currentManualIndex++;
+
+    if (item && item.el) {
+      item.el.scrollIntoView({ behavior: "smooth", block: "center" });
+      item.el.focus();
+      // Temporary ripple animation
+      item.el.style.setProperty("outline", "3px solid #f59e0b", "important");
       setTimeout(() => {
-        host.remove();
-      }, 2000);
-    } catch (err) {
-      console.error("JobFill learning error:", err);
-      button.querySelector("span").textContent = "Error - Try again";
-      button.disabled = false;
-      button.classList.remove("learning");
+        item.el.style.removeProperty("outline");
+      }, 1500);
+
+      reviewRemain.textContent = `${list.length - (currentManualIndex % list.length)}`;
+      msg.textContent = `Reviewing: ${item.field.label || "Required field"}`;
     }
   });
 
-  shadow.appendChild(style);
-  shadow.appendChild(button);
+  // Save My Answers
+  saveAnswersBtn.addEventListener("click", async () => {
+    saveAnswersBtn.disabled = true;
+    saveAnswersBtn.textContent = "Learning answers…";
 
-  // Store fields reference for later use
-  host._jobfillFields = fields;
+    try {
+      await jobfillCaptureUserInputs(currentFields);
+      saveAnswersBtn.textContent = "✓ Saved to Memory!";
+      saveAnswersBtn.classList.add("success");
+      setTimeout(() => {
+        saveAnswersBtn.disabled = false;
+        saveAnswersBtn.classList.remove("success");
+        saveAnswersBtn.textContent = "💾 Save My Answers";
+      }, 2500);
+    } catch (err) {
+      saveAnswersBtn.textContent = "Error saving";
+      saveAnswersBtn.disabled = false;
+    }
+  });
+
+  // Toggle Highlights
+  toggleHighlightsBtn.addEventListener("click", () => {
+    outlinesVisible = !outlinesVisible;
+    const elements = window._jobfillHighlightedElements || [];
+    elements.forEach((el) => {
+      if (outlinesVisible) {
+        const isManual = el.getAttribute("data-jobfill-manual");
+        const filledType = el.getAttribute("data-jobfill-filled");
+        if (isManual) {
+          el.style.setProperty("box-shadow", "0 0 0 2px #f59e0b, 0 0 14px rgba(245, 158, 11, 0.35)", "important");
+        } else if (filledType === "rule") {
+          el.style.setProperty("box-shadow", "0 0 0 2px #10b981, 0 0 10px rgba(16, 185, 129, 0.3)", "important");
+        } else {
+          el.style.setProperty("box-shadow", "0 0 0 2px #38bdf8, 0 0 10px rgba(56, 189, 248, 0.3)", "important");
+        }
+      } else {
+        el.style.removeProperty("box-shadow");
+      }
+    });
+    toggleHighlightsBtn.textContent = outlinesVisible ? "Hide Highlights" : "Show Highlights";
+  });
+
+  const copilotController = {
+    setStatus(text, kind, counts, fields) {
+      msg.textContent = text;
+      dot.className = "status-dot";
+
+      if (kind === "warn") dot.classList.add("warn");
+      else if (kind === "error") dot.classList.add("error");
+      else if (kind === "done") {
+        dot.style.background = "#10b981";
+        metricStrip.classList.add("visible");
+        actionGrid.classList.add("visible");
+
+        if (counts) {
+          pillRule.textContent = `⚡ ${counts.rule} local`;
+          pillAi.textContent = `🤖 ${counts.ai} AI`;
+          pillManual.textContent = `⚠️ ${counts.manual} review`;
+
+          if (counts.manual > 0) {
+            reviewRemain.textContent = counts.manual;
+            orbBadge.textContent = counts.manual;
+          } else {
+            reviewNextBtn.style.display = "none";
+            orbBadge.style.display = "none";
+          }
+        }
+
+        if (fields) {
+          currentFields = fields;
+        }
+      } else {
+        dot.classList.add("busy");
+      }
+    },
+
+    remove() {
+      host.remove();
+    }
+  };
+
+  _jobfillActiveDock = copilotController;
+  return copilotController;
+}
+
+function jobfillInjectLearningButton(fields) {
+  // Gracefully hand over fields to the active Copilot dock
+  if (_jobfillActiveDock && _jobfillActiveDock.setStatus) {
+    // Already integrated into the dock!
+    return;
+  }
 }
 
 /**
