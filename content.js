@@ -12,8 +12,16 @@
 //   setting.
 
 (async function jobfillRun() {
+  // Prevent concurrent runs if the script is injected again while already running
+  if (window._jobfillRunning) return;
+  window._jobfillRunning = true;
+
+  // Clear highlight data from any previous run on this page
+  window._jobfillManualFields = [];
+  window._jobfillHighlightedElements = [];
+
   const badge = jobfillCreateBadge();
-  badge.setStatus("Scanning page…");
+  badge.setStatus("Scanning page\u2026");
 
   try {
     if (jobfillDetectCaptcha()) {
@@ -188,6 +196,9 @@
   } catch (err) {
     console.error("JobFill fatal error:", err);
     badge.setStatus(`Something went wrong: ${err.message}`, "error");
+  } finally {
+    // Allow another Fill run once this one is complete (or has errored out)
+    window._jobfillRunning = false;
   }
 })();
 
@@ -403,20 +414,19 @@ function jobfillFillFile(field, resume) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-window._jobfillManualFields = [];
-window._jobfillHighlightedElements = [];
+
+
 
 function jobfillMarkFilled(field, source) {
   const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
   if (!el) return;
   el.setAttribute("data-jobfill-filled", source);
-  const color = source === "rule" ? "#10b981" : "#38bdf8";
-  const glow = source === "rule" ? "rgba(16, 185, 129, 0.3)" : "rgba(56, 189, 248, 0.3)";
-  el.style.setProperty("box-shadow", `0 0 0 2px ${color}, 0 0 12px ${glow}`, "important");
-  el.style.setProperty("border-radius", "5px", "important");
+  const color = source === "rule" ? "#10b981" : "#3b82f6";
+  el.style.setProperty("outline", `1.5px solid ${color}`, "important");
+  el.style.setProperty("outline-offset", "1px", "important");
   el.title = source === "rule" 
-    ? "✓ Filled by JobFill (auto-matched from your profile)" 
-    : "🤖 Filled by JobFill (tailored with Gemini AI)";
+    ? "Filled by JobFill (profile match)" 
+    : "Filled by JobFill (AI)";
   window._jobfillHighlightedElements.push(el);
 }
 
@@ -424,9 +434,9 @@ function jobfillMarkManual(field, reason) {
   const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
   if (!el) return;
   el.setAttribute("data-jobfill-manual", "true");
-  el.style.setProperty("box-shadow", "0 0 0 2px #f59e0b, 0 0 14px rgba(245, 158, 11, 0.35)", "important");
-  el.style.setProperty("border-radius", "5px", "important");
-  el.title = `⚠️ JobFill review needed: ${reason}`;
+  el.style.setProperty("outline", "1.5px solid #f59e0b", "important");
+  el.style.setProperty("outline-offset", "1px", "important");
+  el.title = `JobFill review: ${reason}`;
   window._jobfillManualFields.push({ el, field, reason });
   window._jobfillHighlightedElements.push(el);
 }
@@ -517,20 +527,20 @@ async function jobfillAppendLog(entry) {
   await chrome.storage.local.set({ [key]: log.slice(0, JOBFILL_DEFAULTS.MAX_LOG_ENTRIES) });
 }
 
-// ---------- on-page JobFill Copilot Dock (Shadow DOM, isolated from page styles) ----------
+// ---------- on-page JobFill Floating Toolbar (Shadow DOM, isolated from page styles) ----------
 
-let _jobfillActiveDock = null;
+let _jobfillActiveBar = null;
 
 function jobfillCreateBadge() {
-  if (_jobfillActiveDock && _jobfillActiveDock.remove) {
-    _jobfillActiveDock.remove();
+  if (_jobfillActiveBar && _jobfillActiveBar.remove) {
+    _jobfillActiveBar.remove();
   }
 
   const host = document.createElement("div");
-  host.setAttribute("data-jobfill-copilot", "true");
+  host.setAttribute("data-jobfill-toolbar", "true");
   host.style.position = "fixed";
-  host.style.bottom = "18px";
-  host.style.right = "18px";
+  host.style.bottom = "16px";
+  host.style.right = "16px";
   host.style.zIndex = "2147483647";
   document.documentElement.appendChild(host);
 
@@ -539,423 +549,170 @@ function jobfillCreateBadge() {
   style.textContent = `
     * { box-sizing: border-box; margin: 0; padding: 0; }
     
-    .copilot-card {
+    .bar {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
-      font-size: 13px;
-      line-height: 1.45;
-      background: rgba(14, 18, 27, 0.94);
-      color: #f1f5f9;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 12px;
-      padding: 14px 16px;
-      width: 320px;
-      box-shadow: 0 10px 30px -4px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-      position: relative;
-    }
-
-    .copilot-card.minimized {
-      display: none;
-    }
-
-    /* Floating Orb (Minimized State) */
-    .copilot-orb {
-      display: none;
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #059669 0%, #0284c7 100%);
-      color: #fff;
-      box-shadow: 0 4px 18px rgba(6, 182, 212, 0.45);
-      cursor: pointer;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      transition: transform 0.2s ease;
-    }
-
-    .copilot-orb:hover {
-      transform: scale(1.08);
-    }
-
-    .copilot-orb.visible {
-      display: flex;
-    }
-
-    .orb-badge {
-      position: absolute;
-      top: -3px;
-      right: -3px;
-      background: #f59e0b;
-      color: #000;
-      font-size: 9px;
-      font-weight: 800;
-      border-radius: 999px;
-      min-width: 16px;
-      height: 16px;
-      line-height: 16px;
-      text-align: center;
-      padding: 0 3px;
-    }
-
-    /* Header */
-    .card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-    }
-
-    .brand-wrap {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 8px #10b981;
-      transition: background 0.2s;
-    }
-    .status-dot.warn { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
-    .status-dot.error { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
-    .status-dot.busy {
-      background: #38bdf8;
-      box-shadow: 0 0 8px #38bdf8;
-      animation: pulse 1s infinite alternate;
-    }
-
-    .brand-title {
-      font-weight: 700;
-      font-size: 13px;
-      letter-spacing: -0.2px;
-      color: #ffffff;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .brand-badge {
-      font-size: 9px;
-      font-weight: 800;
-      padding: 1px 5px;
-      border-radius: 999px;
-      background: rgba(45, 212, 191, 0.15);
-      color: #2dd4bf;
-    }
-
-    .header-controls {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .ctrl-btn {
-      background: transparent;
-      border: none;
-      color: #94a3b8;
-      cursor: pointer;
-      width: 22px;
-      height: 22px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 4px;
-      font-size: 13px;
-      transition: all 0.15s ease;
-    }
-    .ctrl-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
-    }
-
-    /* Message */
-    .status-msg {
-      color: #cbd5e1;
       font-size: 12px;
       line-height: 1.4;
-      margin-bottom: 10px;
-    }
-
-    /* Metric Badges */
-    .metric-strip {
-      display: none;
-      gap: 6px;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
-    .metric-strip.visible {
+      background: #121215;
+      color: #f4f4f5;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 7px 12px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
       display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: fadeIn 0.15s ease;
     }
 
-    .pill {
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 7px;
-      border-radius: 999px;
-    }
-    .pill.rule { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .pill.ai { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
-    .pill.manual { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-
-    /* Actions Grid */
-    .action-grid {
-      display: none;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .action-grid.visible {
-      display: flex;
+    .bar-spinner {
+      width: 11px;
+      height: 11px;
+      border: 1.5px solid #3f3f46;
+      border-top-color: #f4f4f5;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
     }
 
-    .copilot-btn {
-      width: 100%;
-      border: none;
-      border-radius: 6px;
-      padding: 8px 12px;
-      font-size: 12px;
+    .bar-title {
       font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      transition: all 0.2s ease;
-    }
-
-    .btn-review-next {
-      background: rgba(245, 158, 11, 0.18);
-      color: #fbbf24;
-      border: 1px solid rgba(245, 158, 11, 0.4);
-    }
-    .btn-review-next:hover {
-      background: rgba(245, 158, 11, 0.28);
-    }
-
-    .btn-learn {
-      background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
       color: #fff;
-      box-shadow: 0 2px 10px rgba(6, 182, 212, 0.3);
-    }
-    .btn-learn:hover {
-      filter: brightness(1.08);
-      transform: translateY(-1px);
-    }
-    .btn-learn.success {
-      background: #10b981;
     }
 
-    .utility-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 4px;
-      padding-top: 6px;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    .bar-status {
+      color: #a1a1aa;
     }
 
-    .subtle-btn {
+    .bar-btn {
+      background: transparent;
+      border: 1px solid #27272a;
+      color: #f4f4f5;
+      font-size: 11.5px;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .bar-btn:hover {
+      background: #1c1c20;
+      border-color: #3f3f46;
+    }
+
+    .bar-btn-accent {
+      background: #27272a;
+      border-color: #3f3f46;
+      color: #fff;
+    }
+    .bar-btn-accent:hover {
+      background: #3f3f46;
+    }
+
+    .bar-close {
       background: none;
       border: none;
-      color: #94a3b8;
-      font-size: 11px;
+      color: #71717a;
+      font-size: 15px;
       cursor: pointer;
-      padding: 2px 4px;
-      transition: color 0.15s ease;
+      padding: 0 2px;
+      line-height: 1;
     }
-    .subtle-btn:hover {
-      color: #fff;
+    .bar-close:hover {
+      color: #f4f4f5;
     }
 
-    @keyframes pulse {
-      from { opacity: 0.6; transform: scale(0.9); }
-      to { opacity: 1; transform: scale(1.15); }
+    .hidden {
+      display: none !important;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
     }
   `;
 
-  // HTML Structure
   const root = document.createElement("div");
   root.innerHTML = `
-    <!-- Expanded Floating HUD Card -->
-    <div class="copilot-card" id="card">
-      <div class="card-header">
-        <div class="brand-wrap">
-          <div class="status-dot busy" id="dot"></div>
-          <span class="brand-title">JobFill <span class="brand-badge">Copilot</span></span>
-        </div>
-        <div class="header-controls">
-          <button class="ctrl-btn" id="minBtn" title="Minimize to small orb">_</button>
-          <button class="ctrl-btn" id="closeBtn" title="Dismiss Copilot">×</button>
-        </div>
-      </div>
-
-      <div class="status-msg" id="msg">Scanning form fields…</div>
-
-      <div class="metric-strip" id="metricStrip">
-        <span class="pill rule" id="pillRule">⚡ 0 local</span>
-        <span class="pill ai" id="pillAi">🤖 0 AI</span>
-        <span class="pill manual" id="pillManual">⚠️ 0 review</span>
-      </div>
-
-      <div class="action-grid" id="actionGrid">
-        <button class="copilot-btn btn-review-next" id="reviewNextBtn">
-          <span>🎯 Review Next Field (<span id="reviewRemain">0</span>)</span>
-        </button>
-        <button class="copilot-btn btn-learn" id="saveAnswersBtn">
-          <span>💾 Save My Answers</span>
-        </button>
-        <div class="utility-row">
-          <button class="subtle-btn" id="toggleHighlightsBtn">Toggle Highlights</button>
-          <span style="font-size: 10px; color: #64748b;">Never auto-submits</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Collapsed Floating Orb -->
-    <div class="copilot-orb" id="orb" title="JobFill Copilot (Click to open)">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5">
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-      </svg>
-      <span class="orb-badge" id="orbBadge">0</span>
+    <div class="bar" id="bar">
+      <span class="bar-spinner" id="spinner"></span>
+      <span class="bar-status" id="statusMsg">Scanning form fields…</span>
+      <button class="bar-btn bar-btn-accent hidden" id="nextBtn">Next field →</button>
+      <button class="bar-btn hidden" id="saveBtn">Save answers</button>
+      <button class="bar-close" id="closeBtn" title="Dismiss">×</button>
     </div>
   `;
 
   shadow.appendChild(style);
   shadow.appendChild(root);
 
-  // References inside shadow root
-  const card = shadow.getElementById("card");
-  const orb = shadow.getElementById("orb");
-  const orbBadge = shadow.getElementById("orbBadge");
-  const dot = shadow.getElementById("dot");
-  const msg = shadow.getElementById("msg");
-  const minBtn = shadow.getElementById("minBtn");
+  const spinner = shadow.getElementById("spinner");
+  const statusMsg = shadow.getElementById("statusMsg");
+  const nextBtn = shadow.getElementById("nextBtn");
+  const saveBtn = shadow.getElementById("saveBtn");
   const closeBtn = shadow.getElementById("closeBtn");
-  const metricStrip = shadow.getElementById("metricStrip");
-  const pillRule = shadow.getElementById("pillRule");
-  const pillAi = shadow.getElementById("pillAi");
-  const pillManual = shadow.getElementById("pillManual");
-  const actionGrid = shadow.getElementById("actionGrid");
-  const reviewNextBtn = shadow.getElementById("reviewNextBtn");
-  const reviewRemain = shadow.getElementById("reviewRemain");
-  const saveAnswersBtn = shadow.getElementById("saveAnswersBtn");
-  const toggleHighlightsBtn = shadow.getElementById("toggleHighlightsBtn");
 
   let currentFields = [];
-  let currentManualIndex = 0;
-  let outlinesVisible = true;
-
-  // Minimize / Expand logic
-  minBtn.addEventListener("click", () => {
-    card.classList.add("minimized");
-    orb.classList.add("visible");
-  });
-
-  orb.addEventListener("click", () => {
-    orb.classList.remove("visible");
-    card.classList.remove("minimized");
-  });
+  let manualIndex = 0;
 
   closeBtn.addEventListener("click", () => {
     host.remove();
   });
 
-  // Review Next Field Navigation
-  reviewNextBtn.addEventListener("click", () => {
+  nextBtn.addEventListener("click", () => {
     const list = window._jobfillManualFields || [];
     if (list.length === 0) {
-      msg.textContent = "All manual fields have been reviewed! 🎉";
-      reviewNextBtn.style.display = "none";
+      statusMsg.textContent = "All review fields complete";
+      nextBtn.classList.add("hidden");
       return;
     }
 
-    const item = list[currentManualIndex % list.length];
-    currentManualIndex++;
+    const item = list[manualIndex % list.length];
+    manualIndex++;
 
     if (item && item.el) {
       item.el.scrollIntoView({ behavior: "smooth", block: "center" });
       item.el.focus();
-      // Temporary ripple animation
-      item.el.style.setProperty("outline", "3px solid #f59e0b", "important");
-      setTimeout(() => {
-        item.el.style.removeProperty("outline");
-      }, 1500);
-
-      reviewRemain.textContent = `${list.length - (currentManualIndex % list.length)}`;
-      msg.textContent = `Reviewing: ${item.field.label || "Required field"}`;
+      statusMsg.textContent = `Review: ${item.field.label || "Manual input"}`;
     }
   });
 
-  // Save My Answers
-  saveAnswersBtn.addEventListener("click", async () => {
-    saveAnswersBtn.disabled = true;
-    saveAnswersBtn.textContent = "Learning answers…";
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
 
     try {
       await jobfillCaptureUserInputs(currentFields);
-      saveAnswersBtn.textContent = "✓ Saved to Memory!";
-      saveAnswersBtn.classList.add("success");
+      saveBtn.textContent = "Saved";
       setTimeout(() => {
-        saveAnswersBtn.disabled = false;
-        saveAnswersBtn.classList.remove("success");
-        saveAnswersBtn.textContent = "💾 Save My Answers";
-      }, 2500);
-    } catch (err) {
-      saveAnswersBtn.textContent = "Error saving";
-      saveAnswersBtn.disabled = false;
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save answers";
+      }, 2000);
+    } catch (_) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save answers";
     }
   });
 
-  // Toggle Highlights
-  toggleHighlightsBtn.addEventListener("click", () => {
-    outlinesVisible = !outlinesVisible;
-    const elements = window._jobfillHighlightedElements || [];
-    elements.forEach((el) => {
-      if (outlinesVisible) {
-        const isManual = el.getAttribute("data-jobfill-manual");
-        const filledType = el.getAttribute("data-jobfill-filled");
-        if (isManual) {
-          el.style.setProperty("box-shadow", "0 0 0 2px #f59e0b, 0 0 14px rgba(245, 158, 11, 0.35)", "important");
-        } else if (filledType === "rule") {
-          el.style.setProperty("box-shadow", "0 0 0 2px #10b981, 0 0 10px rgba(16, 185, 129, 0.3)", "important");
-        } else {
-          el.style.setProperty("box-shadow", "0 0 0 2px #38bdf8, 0 0 10px rgba(56, 189, 248, 0.3)", "important");
-        }
-      } else {
-        el.style.removeProperty("box-shadow");
-      }
-    });
-    toggleHighlightsBtn.textContent = outlinesVisible ? "Hide Highlights" : "Show Highlights";
-  });
-
-  const copilotController = {
+  const controller = {
     setStatus(text, kind, counts, fields) {
-      msg.textContent = text;
-      dot.className = "status-dot";
+      statusMsg.textContent = text;
 
-      if (kind === "warn") dot.classList.add("warn");
-      else if (kind === "error") dot.classList.add("error");
-      else if (kind === "done") {
-        dot.style.background = "#10b981";
-        metricStrip.classList.add("visible");
-        actionGrid.classList.add("visible");
+      if (kind === "done") {
+        spinner.classList.add("hidden");
+        saveBtn.classList.remove("hidden");
 
         if (counts) {
-          pillRule.textContent = `⚡ ${counts.rule} local`;
-          pillAi.textContent = `🤖 ${counts.ai} AI`;
-          pillManual.textContent = `⚠️ ${counts.manual} review`;
+          statusMsg.textContent = `${counts.rule} local · ${counts.ai} AI · ${counts.manual} manual`;
 
           if (counts.manual > 0) {
-            reviewRemain.textContent = counts.manual;
-            orbBadge.textContent = counts.manual;
-          } else {
-            reviewNextBtn.style.display = "none";
-            orbBadge.style.display = "none";
+            nextBtn.classList.remove("hidden");
           }
         }
 
@@ -963,7 +720,7 @@ function jobfillCreateBadge() {
           currentFields = fields;
         }
       } else {
-        dot.classList.add("busy");
+        spinner.classList.remove("hidden");
       }
     },
 
@@ -972,16 +729,12 @@ function jobfillCreateBadge() {
     }
   };
 
-  _jobfillActiveDock = copilotController;
-  return copilotController;
+  _jobfillActiveBar = controller;
+  return controller;
 }
 
 function jobfillInjectLearningButton(fields) {
-  // Gracefully hand over fields to the active Copilot dock
-  if (_jobfillActiveDock && _jobfillActiveDock.setStatus) {
-    // Already integrated into the dock!
-    return;
-  }
+  // Gracefully handled inside floating bar
 }
 
 /**

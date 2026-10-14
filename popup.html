@@ -3,35 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JobFill — AI Application Assistant</title>
+  <title>JobFill</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <div class="popup-container">
-    <!-- Top Navigation Header -->
-    <header class="app-header">
+  <div class="app-root">
+    <!-- Header -->
+    <header class="header">
       <div class="brand">
-        <div class="logo-icon">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-        </div>
-        <div class="brand-text">
-          <span class="brand-title">JobFill</span>
-          <span class="brand-badge">PRO</span>
-        </div>
+        <span class="brand-name">JobFill</span>
+        <span class="status-indicator" id="headerStatusDot" title="Ready"></span>
       </div>
 
-      <div class="header-actions">
-        <button id="memoryBtn" class="icon-action-btn" title="Learning Memory" aria-label="Learning Memory">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.04z"></path>
-            <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-2.04z"></path>
+      <div class="header-nav">
+        <button id="memoryBtn" class="nav-btn" title="Saved answers" aria-label="Saved answers">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
           </svg>
-          <span id="memoryCountBadge" class="count-badge hidden">0</span>
+          <span id="memoryCountBadge" class="badge-count hidden">0</span>
         </button>
-        <button id="optionsBtn" class="icon-action-btn" title="Open Settings" aria-label="Open Settings">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button id="optionsBtn" class="nav-btn" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
@@ -39,102 +32,71 @@
       </div>
     </header>
 
-    <!-- Main Content Area -->
-    <main class="app-main">
-      <!-- Target Tab Banner -->
-      <div id="tabBanner" class="tab-banner">
-        <div class="tab-indicator-dot"></div>
-        <div class="tab-info">
-          <span id="tabDomain" class="tab-domain">Detecting page...</span>
-          <span id="tabType" class="tab-type">Active Tab</span>
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Target Site Bar -->
+      <div id="tabBanner" class="site-bar">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" class="site-icon">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        <span id="tabDomain" class="site-domain">Checking tab...</span>
+        <span id="tabType" class="site-tag">Application form</span>
+      </div>
+
+      <!-- System Readiness Checklist -->
+      <div class="readiness-row">
+        <button id="keyCheck" class="readiness-tag" title="API Key settings">
+          <span class="tag-bullet bullet-ok" id="keyBullet"></span>
+          <span class="tag-label">API Key</span>
+          <span class="tag-state" id="keyVal">Ready</span>
+        </button>
+        <button id="profileCheck" class="readiness-tag" title="Profile settings">
+          <span class="tag-bullet bullet-ok" id="profileBullet"></span>
+          <span class="tag-label">Profile</span>
+          <span class="tag-state" id="profileVal">Loaded</span>
+        </button>
+        <button id="resumeCheck" class="readiness-tag" title="Resume settings">
+          <span class="tag-bullet bullet-ok" id="resumeBullet"></span>
+          <span class="tag-label">Resumes</span>
+          <span class="tag-state" id="resumeVal">1 active</span>
+        </button>
+      </div>
+
+      <!-- Action Button -->
+      <div class="action-block">
+        <button id="fillBtn" class="btn-fill">
+          <span class="btn-text" id="fillBtnText">Fill application</span>
+          <kbd class="shortcut-key">Alt+Shift+F</kbd>
+        </button>
+
+        <div id="statusRow" class="status-inline hidden">
+          <span class="spinner" id="statusSpinner"></span>
+          <span id="statusText" class="status-label">Working on form...</span>
         </div>
       </div>
 
-      <!-- Readiness Matrix -->
-      <section class="readiness-card">
-        <div class="readiness-header">
-          <span class="readiness-title">System Status</span>
-          <span id="overallStatusBadge" class="status-pill status-ready">Checking...</span>
-        </div>
-        <div class="matrix-grid">
-          <div id="keyCheck" class="matrix-item" title="Click to configure Gemini API Key">
-            <span class="matrix-dot"></span>
-            <span class="matrix-label">API Key</span>
-            <span class="matrix-val" id="keyVal">Checking</span>
-          </div>
-          <div id="profileCheck" class="matrix-item" title="Click to view Profile data">
-            <span class="matrix-dot"></span>
-            <span class="matrix-label">Profile</span>
-            <span class="matrix-val" id="profileVal">Checking</span>
-          </div>
-          <div id="resumeCheck" class="matrix-item" title="Click to view Resumes">
-            <span class="matrix-dot"></span>
-            <span class="matrix-label">Resumes</span>
-            <span class="matrix-val" id="resumeVal">Checking</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Primary Action Area -->
-      <section class="action-card">
-        <button id="fillBtn" class="primary-btn">
-          <span class="btn-glow"></span>
-          <span class="btn-content">
-            <svg class="btn-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-            </svg>
-            <span id="fillBtnText">Fill This Application</span>
-          </span>
-          <span class="shortcut-pill" title="Keyboard Shortcut">Alt+Shift+F</span>
-        </button>
-
-        <p class="action-subtext">
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -1px; margin-right: 3px;">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-          </svg>
-          Assisted filling • Never submits automatically
-        </p>
-
-        <!-- Live Status Row -->
-        <div id="statusRow" class="status-box hidden">
-          <div class="status-spinner" id="statusSpinner"></div>
-          <span id="statusText" class="status-text">Processing form fields...</span>
-        </div>
-      </section>
-
-      <!-- Recent Activity Log Section -->
-      <section class="activity-section">
-        <div class="section-head">
-          <div class="section-title-wrap">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
-            <h2>Recent Activity</h2>
-          </div>
-          <div class="section-actions">
-            <button id="exportBtn" class="subtle-link-btn" title="Export activity log to JSON">Export</button>
-            <span class="dot-separator">•</span>
-            <button id="clearLogBtn" class="subtle-link-btn" title="Clear activity history">Clear</button>
+      <!-- Recent History -->
+      <section class="history-block">
+        <div class="history-header">
+          <span class="history-title">Recent applications</span>
+          <div class="history-actions">
+            <button id="exportBtn" class="text-link">Export</button>
+            <span class="sep">·</span>
+            <button id="clearLogBtn" class="text-link">Clear</button>
           </div>
         </div>
 
         <ul id="logList" class="log-list">
-          <li class="empty-log">
-            <div class="empty-icon">📝</div>
-            <span>No applications filled yet</span>
-          </li>
+          <li class="log-empty">No applications filled yet</li>
         </ul>
       </section>
     </main>
 
-    <!-- Footer Guarantee -->
-    <footer class="app-footer">
-      <div class="security-guarantee">
-        <span class="shield-icon">🛡️</span>
-        <span>Runs locally on your browser. Zero tracking.</span>
-      </div>
+    <!-- Footer -->
+    <footer class="footer">
+      <span>Fills assisted fields · Never submits automatically</span>
     </footer>
   </div>
 

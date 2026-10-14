@@ -1,4 +1,4 @@
-// options.js — Enhanced Command Center Logic for JobFill
+// options.js — Clean, robust logic for JobFill settings
 
 const K = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS) || {
   API_KEY: "jobfill_api_key",
@@ -10,7 +10,7 @@ const K = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_K
   USER_MEMORY: "jobfill_user_memory",
 };
 
-// DOM References - Navigation & Layout
+// DOM References
 const navItems = document.querySelectorAll(".nav-item");
 const tabPanes = document.querySelectorAll(".tab-pane");
 const toast = document.getElementById("toast");
@@ -75,19 +75,10 @@ const presetPills = document.querySelectorAll(".preset-pill");
 const viewMemoryBtn = document.getElementById("viewMemoryBtn");
 const memoryCount = document.getElementById("memoryCount");
 
-// Overview Elements
-const overviewKeyStatus = document.getElementById("overviewKeyStatus");
-const overviewProfileStatus = document.getElementById("overviewProfileStatus");
-const overviewMemoryStatus = document.getElementById("overviewMemoryStatus");
-const overviewEditProfileBtn = document.getElementById("overviewEditProfileBtn");
-const overviewTestKeyBtn = document.getElementById("overviewTestKeyBtn");
-const overviewOpenMemoryBtn = document.getElementById("overviewOpenMemoryBtn");
-
 let currentProfile = {};
 let resumes = [];
 let toastTimer = null;
 
-// Initialize on load
 document.addEventListener("DOMContentLoaded", async () => {
   setupNavigation();
   setupEyeToggle();
@@ -97,7 +88,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadExisting();
 });
 
-// ---------- Navigation Handling ----------
+// ---------- Navigation ----------
 function setupNavigation() {
   navItems.forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -105,21 +96,6 @@ function setupNavigation() {
       switchTab(targetTab);
     });
   });
-
-  if (overviewEditProfileBtn) {
-    overviewEditProfileBtn.addEventListener("click", () => switchTab("tab-profile"));
-  }
-  if (overviewTestKeyBtn) {
-    overviewTestKeyBtn.addEventListener("click", () => {
-      switchTab("tab-api");
-      testKeyBtn.click();
-    });
-  }
-  if (overviewOpenMemoryBtn) {
-    overviewOpenMemoryBtn.addEventListener("click", () => {
-      chrome.tabs.create({ url: chrome.runtime.getURL("memory.html") });
-    });
-  }
 }
 
 function switchTab(tabId) {
@@ -137,19 +113,18 @@ function setupEyeToggle() {
     const isPass = apiKeyInput.type === "password";
     apiKeyInput.type = isPass ? "text" : "password";
     toggleKeyVisibility.innerHTML = isPass
-      ? `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
-      : `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+      ? `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`
+      : `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
   });
 }
 
-// ---------- Profile Studio View Switcher ----------
+// ---------- Profile View Switcher ----------
 function setupProfileViewSwitch() {
   viewVisualBtn.addEventListener("click", () => {
     viewVisualBtn.classList.add("active");
     viewJsonBtn.classList.remove("active");
     visualProfileView.classList.remove("hidden");
     jsonProfileView.classList.add("hidden");
-    // Sync JSON edits back to Visual form
     syncJsonToVisual();
   });
 
@@ -158,12 +133,11 @@ function setupProfileViewSwitch() {
     viewVisualBtn.classList.remove("active");
     jsonProfileView.classList.remove("hidden");
     visualProfileView.classList.add("hidden");
-    // Sync Visual edits to JSON text
     syncVisualToJson();
   });
 }
 
-// ---------- Presets for Model Inputs ----------
+// ---------- Presets for Models ----------
 function setupPresetPills() {
   presetPills.forEach((pill) => {
     pill.addEventListener("click", () => {
@@ -171,7 +145,7 @@ function setupPresetPills() {
       const val = pill.getAttribute("data-val");
       if (targetInput && val) {
         targetInput.value = val;
-        showToast(`Set model to ${val}`);
+        showToast(`Model set to ${val}`);
       }
     });
   });
@@ -188,17 +162,10 @@ async function loadExisting() {
     K.USER_MEMORY,
   ]);
 
-  // 1. API Key
   if (stored[K.API_KEY]) {
     apiKeyInput.value = stored[K.API_KEY];
-    overviewKeyStatus.textContent = "Connected";
-    overviewKeyStatus.style.color = "var(--status-ok)";
-  } else {
-    overviewKeyStatus.textContent = "Not Configured";
-    overviewKeyStatus.style.color = "var(--status-warn)";
   }
 
-  // 2. Profile
   if (stored[K.PROFILE]) {
     currentProfile = stored[K.PROFILE];
   } else {
@@ -213,52 +180,42 @@ async function loadExisting() {
   profileText.value = JSON.stringify(currentProfile, null, 2);
   populateVisualForm(currentProfile);
 
-  const candidateName = currentProfile?.personal_info?.name || "Ready";
-  overviewProfileStatus.textContent = candidateName.split(" ")[0] || "Active";
-
-  // 3. Models
   mappingModelInput.value = stored[K.MAPPING_MODEL] || JOBFILL_DEFAULTS.MAPPING_MODEL;
   writingModelInput.value = stored[K.WRITING_MODEL] || JOBFILL_DEFAULTS.WRITING_MODEL;
 
-  // 4. Resumes
   resumes = stored[K.RESUMES] || [];
   renderResumes(resumes);
 
-  // 5. Continual Memory
   const memory = stored[K.USER_MEMORY] || {};
-  const memCount = Object.keys(memory).length;
-  updateMemoryDisplays(memCount);
+  updateMemoryCount(Object.keys(memory).length);
 }
 
-function updateMemoryDisplays(count) {
-  overviewMemoryStatus.textContent = `${count} answer${count === 1 ? "" : "s"}`;
+function updateMemoryCount(count) {
   memoryCount.textContent = count === 0
     ? "No learned answers yet"
-    : `${count} learned answer${count === 1 ? "" : "s"} in memory`;
+    : `${count} answer${count === 1 ? "" : "s"} saved in memory`;
 }
 
 // ---------- API Key Handlers ----------
 saveKeyBtn.addEventListener("click", async () => {
   const key = apiKeyInput.value.trim();
   if (!key) {
-    setStatus(keyStatus, "Please enter a key first.", "error");
+    setStatus(keyStatus, "Please enter an API key", "error");
     return;
   }
   await chrome.storage.local.set({ [K.API_KEY]: key });
-  setStatus(keyStatus, "Saved locally.", "ok");
-  overviewKeyStatus.textContent = "Connected";
-  overviewKeyStatus.style.color = "var(--status-ok)";
-  showToast("Gemini API key saved securely.");
+  setStatus(keyStatus, "Saved", "ok");
+  showToast("API key saved");
 });
 
 testKeyBtn.addEventListener("click", async () => {
   const key = apiKeyInput.value.trim();
   if (!key) {
-    setStatus(keyStatus, "Enter a key first.", "error");
+    setStatus(keyStatus, "Enter an API key first", "error");
     return;
   }
 
-  setStatus(keyStatus, "Testing latency…", "");
+  setStatus(keyStatus, "Testing...", "");
   keySpinner.classList.remove("hidden");
   testKeyBtn.disabled = true;
 
@@ -272,13 +229,10 @@ testKeyBtn.addEventListener("click", async () => {
     testKeyBtn.disabled = false;
 
     if (res && res.ok) {
-      setStatus(keyStatus, `✓ Connected successfully (${latency}ms)`, "ok");
-      overviewKeyStatus.textContent = "Active";
-      overviewKeyStatus.style.color = "var(--status-ok)";
-      showToast(`Key works! Latency: ${latency}ms`);
+      setStatus(keyStatus, `Connected (${latency}ms)`, "ok");
+      showToast("Connection verified");
     } else {
-      setStatus(keyStatus, `Failed: ${res?.error || "Invalid response"}`, "error");
-      showToast("API Key test failed. Check key & quota.");
+      setStatus(keyStatus, `Error: ${res?.error || "Invalid response"}`, "error");
     }
   } catch (err) {
     keySpinner.classList.add("hidden");
@@ -358,19 +312,19 @@ function syncJsonToVisual() {
 saveVisualProfileBtn.addEventListener("click", async () => {
   syncVisualToJson();
   await chrome.storage.local.set({ [K.PROFILE]: currentProfile });
-  setStatus(visualProfileStatus, "Profile saved successfully.", "ok");
-  showToast("Profile updated successfully!");
+  setStatus(visualProfileStatus, "Saved", "ok");
+  showToast("Profile saved");
 });
 
-// ---------- JSON Mode Logic ----------
+// ---------- JSON Mode Handlers ----------
 saveProfileBtn.addEventListener("click", async () => {
   try {
     const parsed = JSON.parse(profileText.value);
     currentProfile = parsed;
     await chrome.storage.local.set({ [K.PROFILE]: parsed });
     populateVisualForm(parsed);
-    setStatus(profileStatus, "Profile saved.", "ok");
-    showToast("Profile saved from JSON.");
+    setStatus(profileStatus, "Saved", "ok");
+    showToast("Profile saved");
   } catch (err) {
     setStatus(profileStatus, `Invalid JSON: ${err.message}`, "error");
   }
@@ -380,23 +334,22 @@ formatJsonBtn.addEventListener("click", () => {
   try {
     const parsed = JSON.parse(profileText.value);
     profileText.value = JSON.stringify(parsed, null, 2);
-    showToast("JSON formatted.");
   } catch (err) {
-    showToast("Invalid JSON syntax — cannot format.");
+    showToast("Invalid JSON syntax");
   }
 });
 
 copyJsonBtn.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(profileText.value);
-    showToast("JSON copied to clipboard!");
+    showToast("Copied to clipboard");
   } catch (_) {
-    showToast("Couldn't copy to clipboard.");
+    showToast("Copy failed");
   }
 });
 
 resetDefaultBtn.addEventListener("click", async () => {
-  if (confirm("Reset profile to the bundled sample profile? Any uncommitted edits will be lost.")) {
+  if (confirm("Reset profile to sample defaults?")) {
     try {
       const res = await fetch(chrome.runtime.getURL("profile.json"));
       const bundled = await res.json();
@@ -404,9 +357,9 @@ resetDefaultBtn.addEventListener("click", async () => {
       profileText.value = JSON.stringify(bundled, null, 2);
       populateVisualForm(bundled);
       await chrome.storage.local.set({ [K.PROFILE]: bundled });
-      showToast("Reset to sample profile.");
+      showToast("Profile reset to sample");
     } catch (err) {
-      showToast("Error loading sample profile.");
+      showToast("Error resetting profile");
     }
   }
 });
@@ -421,14 +374,14 @@ profileFile.addEventListener("change", async () => {
     profileText.value = JSON.stringify(parsed, null, 2);
     populateVisualForm(parsed);
     await chrome.storage.local.set({ [K.PROFILE]: parsed });
-    setStatus(profileStatus, "Loaded and saved from file.", "ok");
+    setStatus(profileStatus, "File loaded & saved", "ok");
     showToast(`Loaded ${file.name}`);
   } catch (err) {
-    setStatus(profileStatus, `Invalid JSON file: ${err.message}`, "error");
+    setStatus(profileStatus, `Invalid JSON: ${err.message}`, "error");
   }
 });
 
-// ---------- Resume Vault Logic ----------
+// ---------- Resume Dropzone Logic ----------
 function setupResumeDropzone() {
   resumeDropzone.addEventListener("click", () => resumeFile.click());
 
@@ -450,7 +403,7 @@ function setupResumeDropzone() {
         resumeFile.files = e.dataTransfer.files;
         handleFileSelected(file);
       } else {
-        showToast("Only PDF resumes are supported.");
+        showToast("Please select a PDF file");
       }
     }
   });
@@ -463,9 +416,7 @@ function setupResumeDropzone() {
 }
 
 function handleFileSelected(file) {
-  showToast(`Selected ${file.name}. Enter a target role and click Add.`);
   if (!resumeRole.value.trim()) {
-    // Attempt role heuristic from filename
     const clean = file.name.replace(/\.pdf$/i, "").replace(/[-_]/g, " ");
     resumeRole.value = clean;
     resumeRole.focus();
@@ -476,7 +427,7 @@ addResumeBtn.addEventListener("click", async () => {
   const role = resumeRole.value.trim();
   const file = resumeFile.files[0];
   if (!role || !file) {
-    setStatus(resumeStatus, "Please provide a target role and select a PDF resume.", "error");
+    setStatus(resumeStatus, "Please provide a target role and choose a PDF", "error");
     return;
   }
 
@@ -497,8 +448,8 @@ addResumeBtn.addEventListener("click", async () => {
       renderResumes(resumes);
       resumeRole.value = "";
       resumeFile.value = "";
-      setStatus(resumeStatus, "Resume added successfully!", "ok");
-      showToast(`Added resume for "${role}"`);
+      setStatus(resumeStatus, "Resume added", "ok");
+      showToast("Resume added");
     } catch (err) {
       setStatus(resumeStatus, "Error saving: " + err.message, "error");
     }
@@ -511,37 +462,34 @@ function renderResumes(list) {
   resumeList.innerHTML = "";
 
   if (resumes.length === 0) {
-    resumeList.innerHTML = `<li style="color: var(--text-muted); font-size: 12.5px; padding: 12px 0;">No resumes uploaded yet.</li>`;
+    resumeList.innerHTML = `<li style="color: var(--text-dim); font-size: 12px; padding: 6px 0;">No resumes attached yet</li>`;
     return;
   }
 
   resumes.forEach((r, idx) => {
     const li = document.createElement("li");
-    li.className = "resume-card-item";
+    li.className = "resume-row";
     li.innerHTML = `
-      <div class="resume-item-info">
-        <div class="pdf-icon-badge">PDF</div>
-        <div class="resume-text-meta">
-          <strong>${escapeHtml(r.role)}</strong>
-          <span class="resume-filename">${escapeHtml(r.filename)} ${r.fileSize ? `(${r.fileSize})` : ""}</span>
-        </div>
+      <div class="resume-meta">
+        <span class="resume-badge">PDF</span>
+        <span class="resume-role">${escapeHtml(r.role)}</span>
+        <span class="resume-filename">(${escapeHtml(r.filename)})</span>
       </div>
       <div class="resume-actions">
-        <button class="ghost-btn preview-btn" data-idx="${idx}">Preview</button>
-        <button class="ghost-btn danger-hover remove-btn" data-idx="${idx}">Delete</button>
+        <button class="resume-btn preview-btn" data-idx="${idx}">Preview</button>
+        <button class="resume-btn remove-btn text-danger" data-idx="${idx}">Remove</button>
       </div>
     `;
     resumeList.appendChild(li);
   });
 
-  // Attach actions
   resumeList.querySelectorAll(".remove-btn").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       const idx = e.target.getAttribute("data-idx");
       resumes.splice(idx, 1);
       await chrome.storage.local.set({ [K.RESUMES]: resumes });
       renderResumes(resumes);
-      showToast("Resume deleted.");
+      showToast("Resume removed");
     });
   });
 
@@ -563,25 +511,24 @@ saveModelsBtn.addEventListener("click", async () => {
     [K.MAPPING_MODEL]: mappingModelInput.value.trim() || JOBFILL_DEFAULTS.MAPPING_MODEL,
     [K.WRITING_MODEL]: writingModelInput.value.trim() || JOBFILL_DEFAULTS.WRITING_MODEL,
   });
-  setStatus(modelStatus, "Model settings saved.", "ok");
-  showToast("AI models configured.");
+  setStatus(modelStatus, "Saved", "ok");
+  showToast("Model settings saved");
 });
 
-// ---------- Continual Memory Handlers ----------
+// ---------- Memory Handlers ----------
 viewMemoryBtn.addEventListener("click", () => {
   chrome.tabs.create({ url: chrome.runtime.getURL("memory.html") });
 });
 
-// Listen for memory updates in real time
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes[K.USER_MEMORY]) {
     const mem = changes[K.USER_MEMORY].newValue || {};
-    updateMemoryDisplays(Object.keys(mem).length);
+    updateMemoryCount(Object.keys(mem).length);
   }
 });
 
-// ---------- Toast Notification Utility ----------
-function showToast(text, duration = 2800) {
+// ---------- Helpers ----------
+function showToast(text, duration = 2400) {
   if (toastTimer) clearTimeout(toastTimer);
   toast.textContent = text;
   toast.classList.remove("hidden");
@@ -592,7 +539,7 @@ function showToast(text, duration = 2800) {
 
 function setStatus(el, text, kind) {
   el.textContent = text;
-  el.className = `status-msg ${kind || ""}`;
+  el.className = `inline-status ${kind || ""}`;
 }
 
 function formatBytes(bytes) {

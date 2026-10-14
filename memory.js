@@ -1,4 +1,4 @@
-// memory.js — Modern logic for JobFill Continual Learning Dashboard
+// memory.js — Clean, understated logic for JobFill Learned Answers
 
 const STORAGE_KEY = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS?.USER_MEMORY) || "jobfill_user_memory";
 
@@ -10,16 +10,10 @@ const clearSearchBtn = document.getElementById("clearSearchBtn");
 const sortSelect = document.getElementById("sortSelect");
 const filterSummary = document.getElementById("filterSummary");
 const totalBadge = document.getElementById("totalBadge");
-const lastUpdated = document.getElementById("lastUpdated");
 const backBtn = document.getElementById("backBtn");
 const clearAllBtn = document.getElementById("clearAllBtn");
 
-// Hero Stats Elements
-const statTotalEntries = document.getElementById("statTotalEntries");
-const statTotalReuses = document.getElementById("statTotalReuses");
-const statTimeSaved = document.getElementById("statTimeSaved");
-
-// Add Entry Drawer Elements
+// Add Entry Elements
 const addEntryBtn = document.getElementById("addEntryBtn");
 const addDrawer = document.getElementById("addDrawer");
 const closeDrawerBtn = document.getElementById("closeDrawerBtn");
@@ -38,12 +32,12 @@ const testQuestionInput = document.getElementById("testQuestionInput");
 const runMatchTestBtn = document.getElementById("runMatchTestBtn");
 const testMatchResult = document.getElementById("testMatchResult");
 
-// Export / Import Elements
+// Export / Import
 const exportBtn = document.getElementById("exportBtn");
 const importBtn = document.getElementById("importBtn");
 const importFileInput = document.getElementById("importFileInput");
 
-// Modal & Toast Elements
+// Modal & Toast
 const confirmModal = document.getElementById("confirmModal");
 const modalTitle = document.getElementById("modalTitle");
 const modalMessage = document.getElementById("modalMessage");
@@ -55,19 +49,16 @@ let allMemoryEntries = [];
 let pendingModalAction = null;
 let toastTimeout = null;
 
-// Initialize
 document.addEventListener("DOMContentLoaded", () => {
-  loadMemory();
   setupEventListeners();
+  loadMemory();
 });
 
 function setupEventListeners() {
-  // Navigation
   backBtn.addEventListener("click", () => {
     chrome.runtime.openOptionsPage();
   });
 
-  // Search & Filtering
   searchInput.addEventListener("input", (e) => {
     const val = e.target.value.trim();
     clearSearchBtn.classList.toggle("hidden", val.length === 0);
@@ -83,14 +74,14 @@ function setupEventListeners() {
 
   sortSelect.addEventListener("change", applyFilterAndSort);
 
-  // Add Drawer toggle
+  // Add Drawer
   addEntryBtn.addEventListener("click", () => toggleAddDrawer(true));
   closeDrawerBtn.addEventListener("click", () => toggleAddDrawer(false));
   cancelDrawerBtn.addEventListener("click", () => toggleAddDrawer(false));
   emptyAddBtn.addEventListener("click", () => toggleAddDrawer(true));
   saveDrawerBtn.addEventListener("click", handleSaveNewEntry);
 
-  // Test Matcher toggle
+  // Test Matcher
   testMatcherBtn.addEventListener("click", () => toggleMatcherDrawer(true));
   closeMatcherBtn.addEventListener("click", () => toggleMatcherDrawer(false));
   runMatchTestBtn.addEventListener("click", handleRunMatchTest);
@@ -103,15 +94,15 @@ function setupEventListeners() {
   importBtn.addEventListener("click", () => importFileInput.click());
   importFileInput.addEventListener("change", handleImportMemory);
 
-  // Clear all
+  // Clear All
   clearAllBtn.addEventListener("click", () => {
     if (allMemoryEntries.length === 0) {
       showToast("Memory is already empty");
       return;
     }
     showConfirmModal(
-      "Clear All Learned Memory?",
-      "Are you sure you want to delete all learned questions and answers? This action cannot be undone.",
+      "Clear all answers",
+      "Are you sure you want to delete all saved answers? This action cannot be undone.",
       async () => {
         try {
           await chrome.storage.local.set({ [STORAGE_KEY]: {} });
@@ -120,17 +111,16 @@ function setupEventListeners() {
           } catch (_) {}
           allMemoryEntries = [];
           applyFilterAndSort();
-          updateHeaderStats();
-          showToast("All learning memory cleared");
+          updateStats();
+          showToast("All answers cleared");
         } catch (err) {
-          console.error("Failed to clear memory:", err);
-          showToast("Error clearing memory", 3000);
+          showToast("Failed to clear");
         }
       }
     );
   });
 
-  // Modal actions
+  // Modal
   modalCancelBtn.addEventListener("click", closeModal);
   modalConfirmBtn.addEventListener("click", () => {
     if (typeof pendingModalAction === "function") {
@@ -148,9 +138,6 @@ function setupEventListeners() {
   });
 }
 
-/**
- * Load memory entries from chrome storage
- */
 async function loadMemory() {
   try {
     const data = await chrome.storage.local.get(STORAGE_KEY);
@@ -164,17 +151,13 @@ async function loadMemory() {
       source: details.source || "user_input",
     }));
 
-    updateHeaderStats();
+    updateStats();
     applyFilterAndSort();
   } catch (err) {
-    console.error("Error loading memory:", err);
     showToast("Failed to load memory");
   }
 }
 
-/**
- * Filter, sort, and re-render entries
- */
 function applyFilterAndSort() {
   const query = searchInput.value.toLowerCase().trim();
   const sortMode = sortSelect.value;
@@ -187,7 +170,6 @@ function applyFilterAndSort() {
     );
   });
 
-  // Sort entries
   filtered.sort((a, b) => {
     if (sortMode === "frequent") {
       return (b.timesUsed || 1) - (a.timesUsed || 1);
@@ -198,17 +180,13 @@ function applyFilterAndSort() {
     if (sortMode === "oldest") {
       return new Date(a.lastUsed) - new Date(b.lastUsed);
     }
-    // Default 'recent'
     return new Date(b.lastUsed) - new Date(a.lastUsed);
   });
 
   renderList(filtered);
-  updateToolbarMeta(filtered.length);
+  filterSummary.textContent = `${filtered.length} of ${allMemoryEntries.length}`;
 }
 
-/**
- * Render items to DOM
- */
 function renderList(entries) {
   memoryList.innerHTML = "";
 
@@ -222,14 +200,11 @@ function renderList(entries) {
   memoryList.classList.remove("hidden");
 
   if (entries.length === 0) {
-    const noMatch = document.createElement("div");
-    noMatch.className = "card empty-state";
-    noMatch.style.padding = "28px 16px";
-    noMatch.innerHTML = `
-      <div style="font-size: 24px; margin-bottom: 8px;">🔍</div>
-      <p style="color: var(--text-muted); font-size: 13px;">No answers match "<strong>${escapeHtml(searchInput.value)}</strong>"</p>
+    memoryList.innerHTML = `
+      <div style="padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px;">
+        No answers found matching "${escapeHtml(searchInput.value)}"
+      </div>
     `;
-    memoryList.appendChild(noMatch);
     return;
   }
 
@@ -239,91 +214,68 @@ function renderList(entries) {
   });
 }
 
-/**
- * Build sleek memory card
- */
 function createMemoryCard(entry) {
   const card = document.createElement("div");
-  card.className = "memory-item";
+  card.className = "answer-card";
   card.dataset.question = entry.question;
 
   card.innerHTML = `
     <div class="view-mode">
-      <div class="memory-item-top">
-        <div class="question-wrap">
-          <span class="question-text">${escapeHtml(entry.question)}</span>
-          <span class="pill pill-count">⚡ ${entry.timesUsed || 1}× used</span>
-          <span class="pill pill-time">${formatRelativeDate(entry.lastUsed)}</span>
-          <span class="pill pill-source">${entry.source === "manual" ? "manual" : "learned"}</span>
+      <div class="card-top">
+        <div class="card-question-row">
+          <span class="card-question">${escapeHtml(entry.question)}</span>
+          <span class="card-tag">Used ${entry.timesUsed || 1}×</span>
+          <span class="card-tag">${formatRelativeDate(entry.lastUsed)}</span>
         </div>
-        <div class="item-actions">
-          <button class="action-btn copy-btn" title="Copy Answer">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
+        <div class="card-actions">
+          <button class="btn-card-action copy-btn">
             <span class="btn-text">Copy</span>
           </button>
-          <button class="action-btn edit-btn" title="Edit Entry">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-            </svg>
-            <span>Edit</span>
-          </button>
-          <button class="action-btn delete-btn" title="Delete Entry">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-          </button>
+          <button class="btn-card-action edit-btn">Edit</button>
+          <button class="btn-card-action text-danger delete-btn">Delete</button>
         </div>
       </div>
       <div class="answer-body">${escapeHtml(entry.answer)}</div>
     </div>
 
     <div class="edit-mode hidden">
-      <div class="form-group">
+      <div class="field">
         <label>Question / Prompt</label>
         <input type="text" class="edit-question" value="${escapeHtml(entry.question)}" />
       </div>
-      <div class="form-group">
-        <label>Preferred Answer</label>
+      <div class="field" style="margin-top: 8px;">
+        <label>Answer</label>
         <textarea class="edit-answer" rows="3">${escapeHtml(entry.answer)}</textarea>
       </div>
-      <div class="edit-actions">
-        <button class="btn btn-primary edit-save-btn">Save</button>
-        <button class="btn btn-ghost edit-cancel-btn">Cancel</button>
+      <div class="edit-actions" style="margin-top: 10px;">
+        <button class="btn-solid edit-save-btn">Save</button>
+        <button class="btn-subtle edit-cancel-btn">Cancel</button>
       </div>
     </div>
   `;
 
-  // Attach card event listeners
   const viewMode = card.querySelector(".view-mode");
   const editMode = card.querySelector(".edit-mode");
   const copyBtn = card.querySelector(".copy-btn");
   const editBtn = card.querySelector(".edit-btn");
   const deleteBtn = card.querySelector(".delete-btn");
 
-  // Copy handler
   copyBtn.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(entry.answer);
-      copyBtn.querySelector(".btn-text").textContent = "Copied!";
+      copyBtn.querySelector(".btn-text").textContent = "Copied";
       setTimeout(() => {
         copyBtn.querySelector(".btn-text").textContent = "Copy";
-      }, 1500);
-    } catch (err) {
-      showToast("Failed to copy");
+      }, 1400);
+    } catch (_) {
+      showToast("Copy failed");
     }
   });
 
-  // Edit toggle
   editBtn.addEventListener("click", () => {
     viewMode.classList.add("hidden");
     editMode.classList.remove("hidden");
-    const input = editMode.querySelector(".edit-question");
-    input.focus();
+    editMode.querySelector(".edit-question").focus();
   });
 
   const cancelEditBtn = editMode.querySelector(".edit-cancel-btn");
@@ -338,18 +290,17 @@ function createMemoryCard(entry) {
     const updatedA = editMode.querySelector(".edit-answer").value.trim();
 
     if (!updatedQ || !updatedA) {
-      showToast("Question and answer cannot be empty");
+      showToast("Fields cannot be empty");
       return;
     }
 
     await handleSaveEditedEntry(entry.question, updatedQ, updatedA);
   });
 
-  // Delete handler
   deleteBtn.addEventListener("click", () => {
     showConfirmModal(
-      "Delete Learned Answer?",
-      `Are you sure you want to delete the answer for: "${entry.question}"?`,
+      "Delete answer",
+      `Delete saved answer for "${entry.question}"?`,
       () => handleDeleteEntry(entry.question)
     );
   });
@@ -357,9 +308,6 @@ function createMemoryCard(entry) {
   return card;
 }
 
-/**
- * Handle saving edits to an existing memory item
- */
 async function handleSaveEditedEntry(oldQuestion, newQuestionText, newAnswerText) {
   try {
     const data = await chrome.storage.local.get(STORAGE_KEY);
@@ -384,7 +332,6 @@ async function handleSaveEditedEntry(oldQuestion, newQuestionText, newAnswerText
 
     await chrome.storage.local.set({ [STORAGE_KEY]: memory });
 
-    // Update in-memory array
     const idx = allMemoryEntries.findIndex((e) => e.question === oldQuestion);
     if (idx !== -1) {
       allMemoryEntries[idx] = {
@@ -394,17 +341,13 @@ async function handleSaveEditedEntry(oldQuestion, newQuestionText, newAnswerText
     }
 
     applyFilterAndSort();
-    updateHeaderStats();
-    showToast("Answer updated successfully");
+    updateStats();
+    showToast("Answer updated");
   } catch (err) {
-    console.error("Error updating entry:", err);
-    showToast("Failed to save changes");
+    showToast("Failed to save");
   }
 }
 
-/**
- * Delete a single memory entry
- */
 async function handleDeleteEntry(question) {
   try {
     const data = await chrome.storage.local.get(STORAGE_KEY);
@@ -419,17 +362,13 @@ async function handleDeleteEntry(question) {
 
     allMemoryEntries = allMemoryEntries.filter((e) => e.question !== question);
     applyFilterAndSort();
-    updateHeaderStats();
+    updateStats();
     showToast("Answer deleted");
   } catch (err) {
-    console.error("Error deleting entry:", err);
-    showToast("Failed to delete entry");
+    showToast("Delete failed");
   }
 }
 
-/**
- * Toggle Add Entry Drawer
- */
 function toggleAddDrawer(show) {
   addDrawer.classList.toggle("hidden", !show);
   drawerStatus.textContent = "";
@@ -437,45 +376,32 @@ function toggleAddDrawer(show) {
     newQuestion.value = "";
     newAnswer.value = "";
     newQuestion.focus();
-    addDrawer.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
 
-/**
- * Toggle Matcher Drawer
- */
 function toggleMatcherDrawer(show) {
   testMatcherDrawer.classList.toggle("hidden", !show);
   testMatchResult.classList.add("hidden");
   if (show) {
     testQuestionInput.value = "";
     testQuestionInput.focus();
-    testMatcherDrawer.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
 
-/**
- * Simulate matching against current memory entries
- */
 function handleRunMatchTest() {
   const query = testQuestionInput.value.trim();
-  if (!query) {
-    showToast("Enter a test question first");
-    return;
-  }
+  if (!query) return;
 
   if (allMemoryEntries.length === 0) {
     testMatchResult.classList.remove("hidden");
-    testMatchResult.innerHTML = `<em>No memory entries exist yet. Add an answer first!</em>`;
+    testMatchResult.textContent = "No saved answers available to match.";
     return;
   }
 
-  // Tokenize query
   const stopWords = new Set(["the", "a", "an", "is", "are", "do", "you", "have", "your", "what", "which", "in", "for", "with"]);
   const queryTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(w => w.length > 1 && !stopWords.has(w));
   const queryTokenSet = new Set(queryTokens);
 
-  // Score each entry
   const scored = allMemoryEntries.map(entry => {
     let score = 0;
     const qLower = entry.question.toLowerCase();
@@ -496,38 +422,23 @@ function handleRunMatchTest() {
   testMatchResult.classList.remove("hidden");
   if (best.score > 2) {
     testMatchResult.innerHTML = `
-      <div style="margin-bottom: 6px;">
-        <strong>🎯 Matched Question:</strong> "${escapeHtml(best.question)}"
-        <span class="pill pill-count" style="margin-left: 6px;">Confidence Score: ${Math.round(best.score)}</span>
-      </div>
-      <div><strong>Answer JobFill Will Inject:</strong></div>
-      <div style="margin-top: 4px; color: var(--text-main); font-style: italic;">"${escapeHtml(best.answer)}"</div>
+      <div style="margin-bottom: 4px; color: var(--text-dim); font-size: 11.5px;">Matched question:</div>
+      <div style="font-weight: 600; color: var(--text-main); margin-bottom: 8px;">"${escapeHtml(best.question)}"</div>
+      <div style="margin-bottom: 4px; color: var(--text-dim); font-size: 11.5px;">Answer to be used:</div>
+      <div style="color: var(--text-muted); font-size: 12px; background: var(--bg-surface); padding: 8px; border-radius: 4px; border: 1px solid var(--border-subtle);">${escapeHtml(best.answer)}</div>
     `;
   } else {
-    testMatchResult.innerHTML = `
-      <div><strong>⚠️ Low Confidence:</strong> No learned memory strongly matches this specific question. JobFill will fall back to extracting from your general profile summary.</div>
-    `;
+    testMatchResult.innerHTML = `<span style="color: var(--text-dim);">No close match found in memory. JobFill will fall back to your general profile info.</span>`;
   }
 }
 
-/**
- * Handle adding a new entry manually
- */
 async function handleSaveNewEntry() {
   const q = newQuestion.value.trim();
   const a = newAnswer.value.trim();
 
-  if (!q) {
-    drawerStatus.textContent = "Please enter a question label";
-    drawerStatus.className = "status-msg error";
-    newQuestion.focus();
-    return;
-  }
-
-  if (!a) {
-    drawerStatus.textContent = "Please enter an answer";
-    drawerStatus.className = "status-msg error";
-    newAnswer.focus();
+  if (!q || !a) {
+    drawerStatus.textContent = "Please fill in both fields";
+    drawerStatus.className = "inline-status error";
     return;
   }
 
@@ -554,21 +465,17 @@ async function handleSaveNewEntry() {
 
     toggleAddDrawer(false);
     applyFilterAndSort();
-    updateHeaderStats();
-    showToast(isUpdate ? "Answer updated" : "New answer added");
+    updateStats();
+    showToast("Answer saved");
   } catch (err) {
-    console.error("Error saving new entry:", err);
-    drawerStatus.textContent = "Failed to save entry";
-    drawerStatus.className = "status-msg error";
+    drawerStatus.textContent = "Failed to save";
+    drawerStatus.className = "inline-status error";
   }
 }
 
-/**
- * Export memory to a JSON file
- */
 async function handleExportMemory() {
   if (allMemoryEntries.length === 0) {
-    showToast("Memory is empty, nothing to export");
+    showToast("No answers to export");
     return;
   }
 
@@ -582,21 +489,15 @@ async function handleExportMemory() {
     };
   });
 
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-    type: "application/json",
-  });
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `jobfill-memory-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `jobfill-answers-${new Date().toISOString().slice(0, 10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  showToast("Memory exported to JSON");
 }
 
-/**
- * Import memory from a JSON file
- */
 async function handleImportMemory(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -606,7 +507,7 @@ async function handleImportMemory(e) {
     const imported = JSON.parse(text);
 
     if (typeof imported !== "object" || imported === null) {
-      throw new Error("Invalid format: expected a JSON object");
+      throw new Error("Invalid file format");
     }
 
     const data = await chrome.storage.local.get(STORAGE_KEY);
@@ -627,75 +528,33 @@ async function handleImportMemory(e) {
 
     await chrome.storage.local.set({ [STORAGE_KEY]: existing });
     await loadMemory();
-    showToast(`Successfully imported ${count} answers`);
+    showToast(`Imported ${count} answers`);
   } catch (err) {
-    console.error("Import error:", err);
-    showToast(`Import failed: ${err.message}`, 4000);
+    showToast("Import failed: " + err.message);
   } finally {
     importFileInput.value = "";
   }
 }
 
-/**
- * Update Header and Banner Stats
- */
-function updateHeaderStats() {
+function updateStats() {
   const total = allMemoryEntries.length;
-  totalBadge.textContent = `${total} learned`;
-
-  if (statTotalEntries) statTotalEntries.textContent = total;
-  
-  const totalReuses = allMemoryEntries.reduce((acc, curr) => acc + (curr.timesUsed || 1), 0);
-  if (statTotalReuses) statTotalReuses.textContent = totalReuses;
-
-  const minutesSaved = Math.round(totalReuses * 1.5);
-  if (statTimeSaved) statTimeSaved.textContent = `${minutesSaved}m`;
-
-  if (total === 0) {
-    lastUpdated.textContent = "Never updated";
-    return;
-  }
-
-  const latest = allMemoryEntries.reduce((latestDate, curr) => {
-    const d = new Date(curr.lastUsed);
-    return d > latestDate ? d : latestDate;
-  }, new Date(0));
-
-  lastUpdated.textContent = `Updated ${formatRelativeDate(latest.toISOString())}`;
+  totalBadge.textContent = `${total} answer${total === 1 ? "" : "s"}`;
 }
 
-function updateToolbarMeta(filteredCount) {
-  const total = allMemoryEntries.length;
-  if (filteredCount === total) {
-    filterSummary.textContent = `${total} item${total === 1 ? "" : "s"}`;
-  } else {
-    filterSummary.textContent = `${filteredCount} of ${total}`;
-  }
-}
-
-/**
- * Format date to friendly relative string
- */
 function formatRelativeDate(isoString) {
   if (!isoString) return "";
   const date = new Date(isoString);
-  const now = new Date();
-  const diffSec = Math.floor((now - date) / 1000);
+  const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
 
-  if (diffSec < 60) return "just now";
+  if (diffSec < 60) return "Just now";
   const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `${diffMin}m ago`;
   const diffHour = Math.floor(diffMin / 60);
   if (diffHour < 24) return `${diffHour}h ago`;
   const diffDay = Math.floor(diffHour / 24);
-  if (diffDay < 30) return `${diffDay}d ago`;
-
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${diffDay}d ago`;
 }
 
-/**
- * Confirmation Modal
- */
 function showConfirmModal(title, message, onConfirm) {
   modalTitle.textContent = title;
   modalMessage.textContent = message;
@@ -708,10 +567,7 @@ function closeModal() {
   pendingModalAction = null;
 }
 
-/**
- * Toast notification
- */
-function showToast(message, duration = 2500) {
+function showToast(message, duration = 2200) {
   if (toastTimeout) clearTimeout(toastTimeout);
   toast.textContent = message;
   toast.classList.remove("hidden");

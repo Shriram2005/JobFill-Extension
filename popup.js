@@ -1,4 +1,4 @@
-// popup.js — Modern logic for JobFill extension popup
+// popup.js — Clean, understated logic for JobFill popup
 
 const fillBtn = document.getElementById("fillBtn");
 const fillBtnText = document.getElementById("fillBtnText");
@@ -14,23 +14,23 @@ const memoryCountBadge = document.getElementById("memoryCountBadge");
 
 const tabDomain = document.getElementById("tabDomain");
 const tabType = document.getElementById("tabType");
-const tabIndicatorDot = document.querySelector(".tab-indicator-dot");
+const headerStatusDot = document.getElementById("headerStatusDot");
 
-const overallStatusBadge = document.getElementById("overallStatusBadge");
 const keyCheck = document.getElementById("keyCheck");
 const keyVal = document.getElementById("keyVal");
+const keyBullet = document.getElementById("keyBullet");
 const profileCheck = document.getElementById("profileCheck");
 const profileVal = document.getElementById("profileVal");
+const profileBullet = document.getElementById("profileBullet");
 const resumeCheck = document.getElementById("resumeCheck");
 const resumeVal = document.getElementById("resumeVal");
-
-let currentTab = null;
+const resumeBullet = document.getElementById("resumeBullet");
 
 document.addEventListener("DOMContentLoaded", async () => {
+  setupListeners();
   await inspectCurrentTab();
   await checkReadiness();
   await renderLog();
-  setupListeners();
 });
 
 function setupListeners() {
@@ -52,45 +52,34 @@ function setupListeners() {
 async function inspectCurrentTab() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    currentTab = tab;
 
     if (!tab || !tab.url) {
-      setTabInfo("No active tab", "Unknown", false);
+      setTabInfo("No active tab", "Idle");
       return;
     }
 
     if (!/^https?:\/\//i.test(tab.url)) {
-      setTabInfo("Restricted Page", "Cannot run on browser system pages", false);
+      setTabInfo("Browser page", "Restricted");
       fillBtn.disabled = true;
-      fillBtnText.textContent = "Open a Job Page First";
+      fillBtnText.textContent = "Open a job page first";
       return;
     }
 
     const urlObj = new URL(tab.url);
     const domain = urlObj.hostname.replace(/^www\./, "");
     
-    // Check if domain is known job board
     const knownBoards = ["greenhouse.io", "lever.co", "workday.com", "ashbyhq.com", "myworkdayjobs.com", "smartrecruiters.com", "bamboohr.com", "icims.com", "taleo.net", "linkedin.com", "indeed.com"];
     const isKnownJobBoard = knownBoards.some(board => domain.endsWith(board));
 
-    setTabInfo(
-      domain, 
-      isKnownJobBoard ? "🎯 Recognized Job Application" : "Web Form Target", 
-      true
-    );
+    setTabInfo(domain, isKnownJobBoard ? "Job application" : "Web form");
   } catch (err) {
-    setTabInfo("Error inspecting tab", err.message, false);
+    setTabInfo("Active tab", "Ready");
   }
 }
 
-function setTabInfo(domain, type, isLive) {
+function setTabInfo(domain, type) {
   tabDomain.textContent = domain;
   tabType.textContent = type;
-  if (!isLive) {
-    tabIndicatorDot.classList.add("offline");
-  } else {
-    tabIndicatorDot.classList.remove("offline");
-  }
 }
 
 async function checkReadiness() {
@@ -108,43 +97,43 @@ async function checkReadiness() {
     K.USER_MEMORY,
   ]);
 
-  let allGood = true;
+  let allReady = true;
 
-  // 1. API Key check
+  // 1. API Key
   const hasKey = Boolean(stored[K.API_KEY] && stored[K.API_KEY].trim().length > 0);
   if (hasKey) {
-    keyVal.textContent = "Connected";
-    keyCheck.className = "matrix-item ok";
+    keyVal.textContent = "Configured";
+    keyBullet.className = "tag-bullet bullet-ok";
   } else {
     keyVal.textContent = "Missing";
-    keyCheck.className = "matrix-item err";
-    allGood = false;
+    keyBullet.className = "tag-bullet bullet-err";
+    allReady = false;
   }
 
-  // 2. Profile check
+  // 2. Profile
   const profile = stored[K.PROFILE];
   const hasProfile = Boolean(profile && typeof profile === "object" && Object.keys(profile).length > 0);
   if (hasProfile) {
-    const candidateName = profile.personal_info?.name || "Loaded";
-    profileVal.textContent = candidateName.split(" ")[0] || "Loaded";
-    profileCheck.className = "matrix-item ok";
+    const candidateName = profile.personal_info?.name || "Active";
+    profileVal.textContent = candidateName.split(" ")[0] || "Active";
+    profileBullet.className = "tag-bullet bullet-ok";
   } else {
-    profileVal.textContent = "Sample Only";
-    profileCheck.className = "matrix-item warn";
+    profileVal.textContent = "Sample";
+    profileBullet.className = "tag-bullet bullet-warn";
   }
 
-  // 3. Resumes check
+  // 3. Resumes
   const resumes = stored[K.RESUMES];
   const resumeCount = Array.isArray(resumes) ? resumes.length : 0;
   if (resumeCount > 0) {
-    resumeVal.textContent = `${resumeCount} Active`;
-    resumeCheck.className = "matrix-item ok";
+    resumeVal.textContent = `${resumeCount} attached`;
+    resumeBullet.className = "tag-bullet bullet-ok";
   } else {
-    resumeVal.textContent = "Optional";
-    resumeCheck.className = "matrix-item warn";
+    resumeVal.textContent = "None";
+    resumeBullet.className = "tag-bullet bullet-warn";
   }
 
-  // 4. Memory badge count
+  // 4. Memory count badge
   const memory = stored[K.USER_MEMORY] || {};
   const memCount = Object.keys(memory).length;
   if (memCount > 0) {
@@ -154,13 +143,8 @@ async function checkReadiness() {
     memoryCountBadge.classList.add("hidden");
   }
 
-  // Overall badge
-  if (allGood) {
-    overallStatusBadge.textContent = "Ready to Fill";
-    overallStatusBadge.className = "status-pill status-ready";
-  } else {
-    overallStatusBadge.textContent = "Setup Required";
-    overallStatusBadge.className = "status-pill status-attention";
+  if (headerStatusDot) {
+    headerStatusDot.className = allReady ? "status-indicator" : "status-indicator warn";
   }
 }
 
@@ -168,14 +152,14 @@ async function handleFillClick() {
   if (fillBtn.disabled) return;
 
   fillBtn.disabled = true;
-  fillBtnText.textContent = "Running JobFill…";
-  showStatus("Injecting JobFill copilot into tab…", false);
+  fillBtnText.textContent = "Filling application…";
+  showStatus("Scanning fields on page…", false);
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error("No active tab found.");
     if (!/^https?:\/\//i.test(tab.url || "")) {
-      throw new Error("Open an active job application page first.");
+      throw new Error("Open an actual job application first.");
     }
 
     await chrome.scripting.executeScript({
@@ -183,15 +167,13 @@ async function handleFillClick() {
       files: ["constants.js", "rules.js", "content.js"],
     });
 
-    showStatus("Active on page! Look for the JobFill Copilot at bottom-right.", true);
-    
-    // Auto-refresh log and status after 3 seconds
+    showStatus("Active on page", true);
     setTimeout(renderLog, 3000);
   } catch (err) {
-    showStatus(`Failed to start: ${err.message}`, false, true);
+    showStatus(`Failed: ${err.message}`, false, true);
   } finally {
     fillBtn.disabled = false;
-    fillBtnText.textContent = "Fill This Application";
+    fillBtnText.textContent = "Fill application";
   }
 }
 
@@ -206,9 +188,9 @@ function showStatus(text, isDone = false, isErr = false) {
   }
 
   if (isErr) {
-    statusRow.style.borderColor = "var(--status-err)";
+    statusRow.style.borderColor = "var(--accent-err)";
   } else {
-    statusRow.style.borderColor = "var(--border-focus)";
+    statusRow.style.borderColor = "var(--border-subtle)";
   }
 }
 
@@ -217,33 +199,24 @@ async function renderLog() {
   const { [K.LOG]: log } = await chrome.storage.local.get(K.LOG);
 
   if (!log || !Array.isArray(log) || log.length === 0) {
-    logList.innerHTML = `
-      <li class="empty-log">
-        <div class="empty-icon">📝</div>
-        <span>No applications filled yet</span>
-      </li>
-    `;
+    logList.innerHTML = `<li class="log-empty">No applications filled yet</li>`;
     return;
   }
 
   logList.innerHTML = "";
-  log.slice(0, 10).forEach((entry) => {
+  log.slice(0, 8).forEach((entry) => {
     const li = document.createElement("li");
-    li.className = "log-item";
+    li.className = "log-row";
     
     const relativeTime = getRelativeTime(new Date(entry.date));
     const title = entry.title || formatDomain(entry.url);
 
     li.innerHTML = `
-      <div class="log-item-header">
+      <div class="log-left">
         <span class="log-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
         <span class="log-time">${relativeTime}</span>
       </div>
-      <div class="log-badges">
-        <span class="mini-badge rule">⚡ ${entry.filledByRule || 0} local</span>
-        <span class="mini-badge ai">🤖 ${entry.filledByAI || 0} AI</span>
-        ${entry.needsManual ? `<span class="mini-badge manual">⚠️ ${entry.needsManual} review</span>` : ''}
-      </div>
+      <span class="log-meta-tag">${entry.filledByRule || 0} local · ${entry.filledByAI || 0} AI${entry.needsManual ? ` · ${entry.needsManual} review` : ''}</span>
     `;
     logList.appendChild(li);
   });
@@ -272,7 +245,7 @@ function formatDomain(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch (_) {
-    return "Application Page";
+    return "Application page";
   }
 }
 

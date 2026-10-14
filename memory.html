@@ -3,171 +3,112 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JobFill — Continual Learning Memory</title>
+  <title>JobFill — Learned Answers</title>
   <link rel="stylesheet" href="memory.css">
 </head>
 <body>
-  <div class="wrap">
-    <!-- Top Navigation Header -->
-    <header class="top-nav">
-      <div class="nav-left">
-        <div class="logo-box">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-        </div>
-        <div class="header-titles">
-          <h1>Learning Memory Bank</h1>
-          <span class="badge" id="totalBadge">0 learned</span>
-        </div>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <h1 class="page-title">Learned Answers</h1>
+        <span class="count-pill" id="totalBadge">0 answers</span>
       </div>
-      <div class="nav-actions">
-        <button id="addEntryBtn" class="btn btn-primary" title="Add a custom Q&amp;A to memory">
+      <div class="header-actions">
+        <button id="addEntryBtn" class="btn-solid">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
-          <span>Add Entry</span>
+          <span>New answer</span>
         </button>
-        <button id="testMatcherBtn" class="btn btn-secondary" title="Test question matching against your memory">
-          <span>🎯 Test Matcher</span>
-        </button>
-        <button id="exportBtn" class="btn btn-secondary" title="Export memory to JSON">Export</button>
-        <button id="importBtn" class="btn btn-secondary" title="Import memory from JSON">Import</button>
+        <button id="testMatcherBtn" class="btn-subtle">Test match</button>
+        <button id="exportBtn" class="btn-subtle">Export</button>
+        <button id="importBtn" class="btn-subtle">Import</button>
         <input type="file" id="importFileInput" accept=".json" class="hidden" />
-        <button id="clearAllBtn" class="btn btn-danger-subtle" title="Clear all learned answers">Clear</button>
-        <button id="backBtn" class="btn btn-ghost" title="Back to Settings">← Settings</button>
+        <button id="clearAllBtn" class="btn-subtle text-danger">Clear all</button>
+        <button id="backBtn" class="btn-subtle">← Settings</button>
       </div>
     </header>
 
-    <!-- Stats Hero Banner -->
-    <section class="stats-banner">
-      <div class="stat-pill-item">
-        <span class="stat-num" id="statTotalEntries">0</span>
-        <span class="stat-sub">Learned Answers</span>
-      </div>
-      <div class="stat-separator"></div>
-      <div class="stat-pill-item">
-        <span class="stat-num" id="statTotalReuses">0</span>
-        <span class="stat-sub">Autofills Powered</span>
-      </div>
-      <div class="stat-separator"></div>
-      <div class="stat-pill-item">
-        <span class="stat-num" id="statTimeSaved">0m</span>
-        <span class="stat-sub">Time Saved</span>
-      </div>
-      <div class="stat-separator"></div>
-      <div class="stat-pill-item">
-        <span class="stat-num status-accent" id="statEfficiency">100%</span>
-        <span class="stat-sub">Private &amp; Local</span>
-      </div>
-    </section>
-
-    <!-- Interactive Test Matcher Drawer -->
-    <section class="drawer card hidden" id="testMatcherDrawer">
+    <!-- Test Matcher Collapsible Section -->
+    <section class="test-drawer hidden" id="testMatcherDrawer">
       <div class="drawer-header">
-        <h3>🎯 Question Match Simulator</h3>
-        <button id="closeMatcherBtn" class="icon-btn" title="Close">×</button>
+        <h3>Test match against memory</h3>
+        <button id="closeMatcherBtn" class="btn-close">×</button>
       </div>
-      <div class="drawer-body">
-        <p class="drawer-hint">Paste any question from a job form below to see which learned memory answer JobFill matches and with what priority score:</p>
-        <div class="form-group">
-          <input type="text" id="testQuestionInput" placeholder="e.g. Do you have experience with Kotlin and Jetpack Compose?" autocomplete="off" />
-        </div>
-        <button id="runMatchTestBtn" class="btn btn-primary" style="margin-top: 8px;">Simulate Matching</button>
-        <div id="testMatchResult" class="test-result-box hidden"></div>
+      <p class="drawer-desc">Paste an application prompt to see which saved answer JobFill prioritizes:</p>
+      <div class="test-input-row">
+        <input type="text" id="testQuestionInput" placeholder="e.g. Do you have experience with Kotlin?" autocomplete="off" />
+        <button id="runMatchTestBtn" class="btn-solid">Match</button>
       </div>
+      <div id="testMatchResult" class="test-result hidden"></div>
     </section>
 
-    <!-- Add/Create Drawer -->
-    <section class="drawer card hidden" id="addDrawer">
+    <!-- Add Entry Collapsible Section -->
+    <section class="add-drawer hidden" id="addDrawer">
       <div class="drawer-header">
-        <h3 id="drawerTitle">Add Learned Answer</h3>
-        <button id="closeDrawerBtn" class="icon-btn" title="Close">×</button>
+        <h3 id="drawerTitle">Add new answer</h3>
+        <button id="closeDrawerBtn" class="btn-close">×</button>
       </div>
-      <div class="drawer-body">
-        <div class="form-group">
-          <label for="newQuestion">Question / Prompt Label</label>
-          <input 
-            type="text" 
-            id="newQuestion" 
-            placeholder="e.g. Why are you interested in this role?" 
-            autocomplete="off"
-          />
-        </div>
-        <div class="form-group">
-          <label for="newAnswer">Preferred Answer</label>
-          <textarea 
-            id="newAnswer" 
-            rows="3" 
-            placeholder="Enter the exact answer you want JobFill to remember..."
-          ></textarea>
-        </div>
-        <div class="drawer-actions">
-          <button id="saveDrawerBtn" class="btn btn-primary">Save to Memory</button>
-          <button id="cancelDrawerBtn" class="btn btn-ghost">Cancel</button>
-          <span id="drawerStatus" class="status-msg"></span>
-        </div>
+      <div class="field">
+        <label for="newQuestion">Question / Label</label>
+        <input type="text" id="newQuestion" placeholder="e.g. Why are you interested in this position?" autocomplete="off" />
+      </div>
+      <div class="field" style="margin-top: 12px;">
+        <label for="newAnswer">Answer</label>
+        <textarea id="newAnswer" rows="3" placeholder="Enter your preferred answer to save..."></textarea>
+      </div>
+      <div class="drawer-actions">
+        <button id="saveDrawerBtn" class="btn-solid">Save answer</button>
+        <button id="cancelDrawerBtn" class="btn-subtle">Cancel</button>
+        <span id="drawerStatus" class="inline-status"></span>
       </div>
     </section>
 
-    <!-- Toolbar Strip (Search + Sort + Stats) -->
-    <div class="toolbar card">
-      <div class="search-box">
-        <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+    <!-- Filter and Search Toolbar -->
+    <div class="toolbar">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" class="search-icon">
           <circle cx="11" cy="11" r="8"></circle>
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
         </svg>
-        <input 
-          type="text" 
-          id="searchInput" 
-          placeholder="Filter questions, answers, or keywords..." 
-          autocomplete="off"
-        />
-        <button id="clearSearchBtn" class="icon-btn clear-search hidden" title="Clear search">×</button>
+        <input type="text" id="searchInput" placeholder="Filter answers..." autocomplete="off" />
+        <button id="clearSearchBtn" class="clear-btn hidden" title="Clear">×</button>
       </div>
 
-      <div class="toolbar-right">
-        <div class="sort-wrap">
+      <div class="toolbar-controls">
+        <div class="sort-group">
           <label for="sortSelect">Sort:</label>
           <select id="sortSelect">
-            <option value="recent">Recently Used</option>
-            <option value="frequent">Most Used</option>
-            <option value="alpha">Question (A-Z)</option>
-            <option value="oldest">Oldest First</option>
+            <option value="recent">Recently used</option>
+            <option value="frequent">Most used</option>
+            <option value="alpha">Alphabetical</option>
+            <option value="oldest">Oldest first</option>
           </select>
         </div>
-        <div class="meta-strip">
-          <span id="filterSummary">0 items</span>
-          <span class="meta-dot"></span>
-          <span id="lastUpdated">Never updated</span>
-        </div>
+        <span id="filterSummary" class="meta-label">0 items</span>
       </div>
     </div>
 
-    <!-- Memory List Container -->
-    <div id="memoryList" class="memory-list">
-      <!-- Generated memory cards appear here -->
-    </div>
+    <!-- Answers List -->
+    <div id="memoryList" class="answer-list"></div>
 
     <!-- Empty State -->
-    <div class="empty-state card hidden" id="emptyState">
-      <div class="empty-content">
-        <div class="empty-icon">🧠</div>
-        <h2>No Learned Answers Yet</h2>
-        <p class="hint">JobFill learns automatically when you fill job applications and click "Save My Answers", or you can add custom answers manually right now.</p>
-        <button id="emptyAddBtn" class="btn btn-primary" style="margin-top: 14px;">+ Add Your First Answer</button>
-      </div>
+    <div class="empty-box hidden" id="emptyState">
+      <h3>No answers saved yet</h3>
+      <p>JobFill automatically saves answers when you click "Save answers" on a form, or you can add them manually.</p>
+      <button id="emptyAddBtn" class="btn-solid" style="margin-top: 14px;">+ Add an answer</button>
     </div>
 
-    <!-- Confirmation Modal -->
+    <!-- Modal Dialog -->
     <div class="modal-overlay hidden" id="confirmModal">
-      <div class="modal-box card">
-        <h3 id="modalTitle">Confirm Action</h3>
+      <div class="modal-box">
+        <h3 id="modalTitle">Confirm</h3>
         <p id="modalMessage" class="modal-msg"></p>
         <div class="modal-actions">
-          <button id="modalConfirmBtn" class="btn btn-danger">Confirm</button>
-          <button id="modalCancelBtn" class="btn btn-secondary">Cancel</button>
+          <button id="modalConfirmBtn" class="btn-solid btn-danger-solid">Delete</button>
+          <button id="modalCancelBtn" class="btn-subtle">Cancel</button>
         </div>
       </div>
     </div>
