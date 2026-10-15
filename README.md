@@ -1,121 +1,102 @@
-# JobFill
+# JobFill — Assisted Job Application Filler
 
-A Chrome extension that fills job application forms from your `profile.json`.
-It matches obvious fields locally for free, asks Gemini only for what's left,
-and **never submits anything for you.**
+A privacy-focused Chrome Extension (Manifest V3) that intelligently auto-populates job applications using your candidate profile and local matching rules, asking Google Gemini only for what is left, and **never submitting forms automatically.**
 
-## 🆕 Continual Learning Feature
+---
 
-JobFill now includes a **Memory System** that learns from your manual inputs using a RAG (Retrieval-Augmented Generation) approach:
+## Key Features
 
-### How It Works
+### 1. Zero-Cost Local Matching First
+- Standard fields (names, email, phone, address, graduation dates, GPA, current role/employer, LinkedIn, GitHub, portfolio, work authorization) are matched locally in `rules.js` before any network request.
+- Uses HTML5 autocomplete tokens and normalized label synonyms.
+- **Cost: $0.00 — 100% private and instant.**
 
-1. **Fill out forms** as usual with JobFill's AI assistance
-2. **Review and edit** any fields where you want to provide your own answer
-3. **Click "Save My Answers"** button (appears after filling)
-4. JobFill captures your manual inputs and stores them in local memory
-5. **Future applications** will prioritize your learned answers over AI guesses
+### 2. Built-in Job Application Tracker
+- Automatically logs or lets you track applications directly in your browser.
+- Dashboard metrics: Total Applications, Applied, Interviewing, Offered, and Rejected.
+- Filter by status, search by company or role, manage follow-up dates, and export records as CSV.
 
-### Benefits
+### 3. AI Cover Letter & Custom Question Generator
+- Drafts targeted cover letters and application essays in seconds.
+- Tone selection (Professional, Enthusiastic, Confident, Concise) and length controls (Short ~150 words, Medium ~300 words, Detailed ~450 words).
+- **Strictly fact-grounded**: Never fabricates skills, dates, or experience outside your verified profile.
 
-- **Gets smarter over time** - The AI learns your preferences and writing style
-- **Consistent answers** - Same questions get same answers across applications
-- **Better accuracy** - Your manual inputs are prioritized over profile data
-- **Full control** - Manage, edit, or delete learned answers anytime
+### 4. Import Profile Directly from Resume
+- Paste your resume text or upload your PDF in the Profile settings tab.
+- Gemini extracts contact info, summary, core competencies, experience, education, and projects into structured JSON.
+- Review and confirm before merging into your active candidate profile.
 
-### Managing Your Memory
+### 5. Continual Learning Memory (with Sensitive Data Filter)
+- Observes questions and answers you manually fill on job forms.
+- Interactive confirmation modal lets you select which Q&A pairs to remember.
+- Sensitive credentials (passwords, SSNs, credit cards, PINs, bank accounts) are **strictly excluded** by default.
+- Uses relevance similarity thresholds so unrelated questions are never polluted with past answers.
 
-1. Go to **Options** → **View Learning Memory**
-2. See all questions and answers the AI has learned
-3. Search through your learned responses
-4. Delete incorrect entries or clear all memory
+### 6. Overwrite Protection & Instant Undo
+- Skips already-filled fields by default to prevent overwriting manual answers.
+- Toggle "Overwrite existing answers" in popup or options whenever needed.
+- Full snapshot taken prior to filling: click **"Undo Fill"** in the floating badge to restore all fields immediately.
 
-### Technical Details
+### 7. Secure Header-Based API Key Transmission
+- Transmits API keys exclusively via `x-goog-api-key` HTTP headers (never via URL query parameters).
+- Candidate profiles are sanitized to minimize data sent to the AI model.
+- Error logs automatically redact potential key leaks.
 
-- Stores question-answer pairs in `chrome.storage.local`
-- Maximum 500 learned entries (keeps most recently used)
-- Memory is injected into AI prompts as "Past Answers" context
-- Works with both field mapping (Flash) and essay writing (Pro) models
+### 8. Interactive Resume Attachment
+- Compares job requirements against your uploaded PDF resumes.
+- Provides match explanation and matching/missing skills.
+- Explicitly prompts you to approve attaching the resume file to the application form.
 
-## Install (unpacked, for personal use)
+---
 
-1. Open `chrome://extensions`.
-2. Turn on **Developer mode** (top-right toggle).
-3. Click **Load unpacked** and select this `jobfill-extension` folder.
-4. The "J_" icon appears in your toolbar.
+## Supported Gemini Models
 
-## Set up
+JobFill defaults to Google's active **Gemini 3.8** family on Google AI Studio:
 
-1. Click the toolbar icon → **Profile & API key settings** (or right-click the
-   icon → Options).
-2. **API key**: paste your Gemini API key, click **Save key**, then
-   **Test key** to confirm it works. The key is stored only in this browser's
-   local extension storage (`chrome.storage.local`) — it is never bundled
-   into code, synced anywhere, or sent anywhere except directly to
-   `generativelanguage.googleapis.com`.
-3. **Profile**: click **Choose file** and select your `profile.json`
-   (`sample-profile.json` in this folder is your actual file, already in the
-   right shape — upload that one, or your latest version of it), then
-   **Save profile**.
-4. **Models**: defaults are already sensible — Flash for field mapping,
-   Pro for written answers — but you can change either in this screen at
-   any time.
+| Task | Default Model | Description |
+|------|---------------|-------------|
+| **Field Mapping** | `gemini-3.8-flash` | Ultra-fast categorization and multiple-choice matching |
+| **Written Answers** | `gemini-3.8-flash` | Cohesive, concise tailored paragraphs for open-ended questions |
+| **Deep Reasoning** | `gemini-3.8-pro` | Optional preset for complex technical questions |
 
-## Use it
+You can configure model IDs and test connection anytime in **Settings → AI Models**.
 
-1. Open an actual job application page (Greenhouse and Lever postings are
-   good first tests — they're common, fairly standardized ATS platforms).
-2. Click the toolbar icon → **Fill this application**.
-3. Watch the small status badge that appears in the bottom-right of the page
-   — it reports what it's doing as it goes.
-4. When it's done, fields are outlined by how they were filled:
-   - **Mint outline** — matched locally from your profile, no API call.
-   - **Blue outline** — filled by Gemini (field mapping or a written answer).
-   - **Orange outline** — needs you: a file upload, or a question your
-     profile doesn't have enough data to answer honestly (salary
-     expectations and work-authorization questions usually land here, on
-     purpose — those shouldn't be guessed).
-5. **Review everything, then click Submit yourself.** JobFill will not do
-   this step for you, ever.
-6. If the form has multiple steps/pages, click **Fill this application**
-   again after you advance to the next one.
+---
 
-## How the cost-control actually works
+## Installation
 
-- Most standard fields (name, email, location, current title, skills,
-  education) are matched with plain pattern-matching in `rules.js` — **zero
-  API cost.**
-- Only whatever's left (dropdowns, radio/checkbox groups, short leftover
-  text fields) goes to Gemini Flash in **one batched call per page**, not
-  one call per field.
-- Genuinely open-ended questions ("why do you want to work here") go to
-  Gemini Pro, once each, since those are worth a better model.
-- Realistic cost per application: a fraction of a cent to a couple of cents,
-  even on a page with a lot of custom questions.
+1. Open `chrome://extensions/` in Chrome or Brave.
+2. Enable **Developer mode** (top-right toggle).
+3. Click **Load unpacked** and select the `jobfill-extension` directory.
+4. The JobFill icon appears in your browser toolbar.
 
-## Known limitations (by design, not oversights)
+---
 
-- **File uploads are always manual.** Browsers don't allow scripts to set
-  the value of `<input type="file">` for security reasons — resume/cover
-  letter attachments always get flagged orange for you to attach yourself.
-- **CAPTCHAs stop the run.** JobFill detects reCAPTCHA/hCaptcha/Turnstile
-  and pauses rather than trying to solve or bypass them — solve it
-  yourself, then click Fill again if needed.
-- **One page at a time.** Multi-step application wizards need you to click
-  the extension again on each step. This is safer than guessing at "Next"
-  vs. "Submit" buttons on sites JobFill has never seen.
-- **It never clicks Submit/Apply.** Not a setting — hardcoded.
-- Many job platforms restrict automated form-filling in their terms of
-  service. This tool is built to look like — and behave like — a human
-  reviewing and clicking through their own application, one tab at a time,
-  rather than an unattended bot, but you're using it at your own judgment
-  and risk on any given site.
+## Initial Setup
 
-## Extending it
+1. Click the JobFill icon → **Settings** (or right-click → Options).
+2. **API Key**: Paste your key from [Google AI Studio](https://aistudio.google.com/app/apikey) and click **Test connection**.
+3. **Candidate Profile**: Fill out the visual form, import a JSON file, or use **Import from Resume**.
+4. **Resumes (Optional)**: In the Resumes tab, upload PDF versions of your resume tailored for different roles.
 
-- Add more local match rules in `rules.js` — each is just a regex on the
-  field's label plus a function that pulls a value from your profile.
-- Change either model in the Options page any time, or edit the defaults in
-  `constants.js`.
-- `background.js` is the only file that talks to the network — everything
-  else only ever messages it.
+---
+
+## How to Use
+
+1. Navigate to any job application page (Greenhouse, Lever, Workday, Ashby, Taleo, LinkedIn, etc.).
+2. Click **Fill application** in the popup or press `Alt+Shift+F`.
+3. An on-page floating toolbar will display progress:
+   - **Green outline**: Matched locally from your profile (no API call).
+   - **Blue outline**: Filled by Gemini AI.
+   - **Orange outline**: Flagged for manual review (file uploads, missing profile details, or CAPTCHAs).
+4. Review all answers, click **Log application** to save to your tracker, and submit the application yourself.
+
+---
+
+## Testing
+
+Run the automated test suite locally:
+```bash
+node tests/jobfill.test.js
+```
+Validates local rule matching, memory relevance scoring, sensitive data redaction, profile minimization, and AI response validation.

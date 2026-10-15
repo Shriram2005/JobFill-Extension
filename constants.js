@@ -1,14 +1,14 @@
 // constants.js — single place to tune models, storage keys, and limits.
 // Loaded before every other script (see manifest/executeScript ordering).
 
-const JOBFILL_DEFAULTS = {
+var JOBFILL_DEFAULTS = {
   // Cheapest/fastest current tier — used for field-classification/mapping,
   // which is closer to matching a label to a value than to writing.
-  MAPPING_MODEL: "gemini-3.5-flash-lite",
+  MAPPING_MODEL: "gemini-3.8-flash",
 
   // Best speed/quality tradeoff — used only for actual writing (tailored
   // bullet points, short cover-letter-style answers), once per job.
-  WRITING_MODEL: "gemini-3.5-flash-lite",
+  WRITING_MODEL: "gemini-3.8-flash",
 
   API_URL: "https://generativelanguage.googleapis.com/v1beta/models",
 
@@ -28,8 +28,17 @@ const JOBFILL_DEFAULTS = {
     LOG: "jobfill_log",
     RESUMES: "jobfill_resumes",
     USER_MEMORY: "jobfill_user_memory", // Continual learning memory
+    APPLICATIONS: "jobfill_applications", // Application tracker records
+    OVERWRITE_EXISTING: "jobfill_overwrite_existing", // Overwrite existing values toggle
+    COVER_LETTERS: "jobfill_cover_letters", // Saved cover letters & answers
+    PROFILE_PHOTO: "jobfill_profile_photo", // Candidate profile picture/avatar
   },
 
   MAX_LOG_ENTRIES: 200,
   MAX_MEMORY_ENTRIES: 500, // Maximum number of learned Q&A pairs
+  MAX_APPLICATIONS: 1000,
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = JOBFILL_DEFAULTS;
+}

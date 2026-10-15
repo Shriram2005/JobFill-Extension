@@ -10,7 +10,11 @@ const exportBtn = document.getElementById("exportBtn");
 const clearLogBtn = document.getElementById("clearLogBtn");
 const optionsBtn = document.getElementById("optionsBtn");
 const memoryBtn = document.getElementById("memoryBtn");
+const trackerBtn = document.getElementById("trackerBtn");
 const memoryCountBadge = document.getElementById("memoryCountBadge");
+const popupOverwriteToggle = document.getElementById("popupOverwriteToggle");
+const unsupportedBanner = document.getElementById("unsupportedBanner");
+const unsupportedMsg = document.getElementById("unsupportedMsg");
 
 const tabDomain = document.getElementById("tabDomain");
 const tabType = document.getElementById("tabType");
@@ -35,7 +39,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 function setupListeners() {
   optionsBtn.addEventListener("click", () => chrome.runtime.openOptionsPage());
-  
+
+  trackerBtn.addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("options.html#tab-tracker") });
+  });
+
   memoryBtn.addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("memory.html") });
   });
@@ -47,6 +55,11 @@ function setupListeners() {
   fillBtn.addEventListener("click", handleFillClick);
   exportBtn.addEventListener("click", handleExportLog);
   clearLogBtn.addEventListener("click", handleClearLog);
+
+  popupOverwriteToggle.addEventListener("change", async () => {
+    const key = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS?.OVERWRITE_EXISTING) || "jobfill_overwrite_existing";
+    await chrome.storage.local.set({ [key]: popupOverwriteToggle.checked });
+  });
 }
 
 async function inspectCurrentTab() {
@@ -55,26 +68,57 @@ async function inspectCurrentTab() {
 
     if (!tab || !tab.url) {
       setTabInfo("No active tab", "Idle");
+      showUnsupported("No active browser tab found.");
+      return;
+    }
+
+    // Check for internal browser URLs
+    if (/^(chrome|edge|opera|about|view-source|chrome-extension):\/\//i.test(tab.url)) {
+      setTabInfo("Browser page", "Restricted");
+      showUnsupported(
+        "Autofill is restricted on browser internal and extension pages. Navigate to a job posting or application form (e.g. Greenhouse, Lever, Workday, LinkedIn) to use JobFill."
+      );
+      fillBtn.disabled = true;
+      fillBtnText.textContent = "Unavailable on this page";
       return;
     }
 
     if (!/^https?:\/\//i.test(tab.url)) {
-      setTabInfo("Browser page", "Restricted");
+      setTabInfo("Local page", "Restricted");
+      showUnsupported("JobFill requires a standard http:// or https:// job application URL.");
       fillBtn.disabled = true;
-      fillBtnText.textContent = "Open a job page first";
+      fillBtnText.textContent = "Unavailable on this page";
       return;
     }
 
     const urlObj = new URL(tab.url);
     const domain = urlObj.hostname.replace(/^www\./, "");
-    
-    const knownBoards = ["greenhouse.io", "lever.co", "workday.com", "ashbyhq.com", "myworkdayjobs.com", "smartrecruiters.com", "bamboohr.com", "icims.com", "taleo.net", "linkedin.com", "indeed.com"];
-    const isKnownJobBoard = knownBoards.some(board => domain.endsWith(board));
+
+    const knownBoards = [
+      "greenhouse.io",
+      "lever.co",
+      "workday.com",
+      "ashbyhq.com",
+      "myworkdayjobs.com",
+      "smartrecruiters.com",
+      "bamboohr.com",
+      "icims.com",
+      "taleo.net",
+      "linkedin.com",
+      "indeed.com",
+    ];
+    const isKnownJobBoard = knownBoards.some((board) => domain.endsWith(board));
 
     setTabInfo(domain, isKnownJobBoard ? "Job application" : "Web form");
+    unsupportedBanner.classList.add("hidden");
   } catch (err) {
     setTabInfo("Active tab", "Ready");
   }
+}
+
+function showUnsupported(msg) {
+  unsupportedMsg.textContent = msg;
+  unsupportedBanner.classList.remove("hidden");
 }
 
 function setTabInfo(domain, type) {
@@ -88,6 +132,7 @@ async function checkReadiness() {
     PROFILE: "jobfill_profile",
     RESUMES: "jobfill_resumes",
     USER_MEMORY: "jobfill_user_memory",
+    OVERWRITE_EXISTING: "jobfill_overwrite_existing",
   };
 
   const stored = await chrome.storage.local.get([
@@ -95,7 +140,10 @@ async function checkReadiness() {
     K.PROFILE,
     K.RESUMES,
     K.USER_MEMORY,
+    K.OVERWRITE_EXISTING,
   ]);
+
+  popupOverwriteToggle.checked = Boolean(stored[K.OVERWRITE_EXISTING]);
 
   let allReady = true;
 
@@ -118,8 +166,8 @@ async function checkReadiness() {
     profileVal.textContent = candidateName.split(" ")[0] || "Active";
     profileBullet.className = "tag-bullet bullet-ok";
   } else {
-    profileVal.textContent = "Sample";
-    profileBullet.className = "tag-bullet bullet-warn";
+    profileVal.textContent = "Configured";
+    profileBullet.className = "tag-bullet bullet-ok";
   }
 
   // 3. Resumes
@@ -159,7 +207,7 @@ async function handleFillClick() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error("No active tab found.");
     if (!/^https?:\/\//i.test(tab.url || "")) {
-      throw new Error("Open an actual job application first.");
+      throw new Error("JobFill cannot run on restricted or browser internal URLs.");
     }
 
     await chrome.scripting.executeScript({
@@ -180,89 +228,74 @@ async function handleFillClick() {
 function showStatus(text, isDone = false, isErr = false) {
   statusRow.classList.remove("hidden");
   statusText.textContent = text;
-  
-  if (isDone) {
-    statusSpinner.classList.add("done");
+  statusText.style.color = isErr ? "#ef4444" : isDone ? "#10b981" : "#a1a1aa";
+  if (isDone || isErr) {
+    statusSpinner.classList.add("hidden");
+    setTimeout(() => statusRow.classList.add("hidden"), 4000);
   } else {
-    statusSpinner.classList.remove("done");
-  }
-
-  if (isErr) {
-    statusRow.style.borderColor = "var(--accent-err)";
-  } else {
-    statusRow.style.borderColor = "var(--border-subtle)";
+    statusSpinner.classList.remove("hidden");
   }
 }
 
 async function renderLog() {
-  const K = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS) || { LOG: "jobfill_log" };
-  const { [K.LOG]: log } = await chrome.storage.local.get(K.LOG);
+  const K = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS?.LOG) || "jobfill_log";
+  const { [K]: log } = await chrome.storage.local.get(K);
+  logList.innerHTML = "";
 
-  if (!log || !Array.isArray(log) || log.length === 0) {
-    logList.innerHTML = `<li class="log-empty">No applications filled yet</li>`;
+  if (!Array.isArray(log) || log.length === 0) {
+    logList.innerHTML = '<li class="log-empty">No applications filled yet</li>';
     return;
   }
 
-  logList.innerHTML = "";
-  log.slice(0, 8).forEach((entry) => {
+  log.slice(0, 10).forEach((entry) => {
     const li = document.createElement("li");
-    li.className = "log-row";
-    
-    const relativeTime = getRelativeTime(new Date(entry.date));
-    const title = entry.title || formatDomain(entry.url);
+    li.className = "log-item";
+
+    const title = entry.title || new URL(entry.url).hostname;
+    const date = new Date(entry.date);
+    const timeStr = isNaN(date.getTime())
+      ? "Recent"
+      : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
     li.innerHTML = `
-      <div class="log-left">
-        <span class="log-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
-        <span class="log-time">${relativeTime}</span>
+      <div class="log-title">${escapeHtml(title)}</div>
+      <div class="log-meta">
+        <span class="log-stats">
+          <span class="stat-tag tag-rule">${entry.filledByRule || 0} rule</span>
+          <span class="stat-tag tag-ai">${entry.filledByAI || 0} AI</span>
+          <span class="stat-tag tag-manual">${entry.needsManual || 0} manual</span>
+        </span>
+        <span class="log-time">${timeStr}</span>
       </div>
-      <span class="log-meta-tag">${entry.filledByRule || 0} local · ${entry.filledByAI || 0} AI${entry.needsManual ? ` · ${entry.needsManual} review` : ''}</span>
     `;
     logList.appendChild(li);
   });
 }
 
 async function handleExportLog() {
-  const K = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS) || { LOG: "jobfill_log" };
-  const { [K.LOG]: log } = await chrome.storage.local.get(K.LOG);
-  const blob = new Blob([JSON.stringify(log || [], null, 2)], { type: "application/json" });
+  const K = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS?.LOG) || "jobfill_log";
+  const { [K]: log } = await chrome.storage.local.get(K);
+  if (!log || log.length === 0) return;
+
+  const blob = new Blob([JSON.stringify(log, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
-  
   const a = document.createElement("a");
   a.href = url;
-  a.download = `jobfill-activity-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `jobfill-history-${new Date().toISOString().split("T")[0]}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
 async function handleClearLog() {
-  const K = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS) || { LOG: "jobfill_log" };
-  await chrome.storage.local.set({ [K.LOG]: [] });
+  const K = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS?.LOG) || "jobfill_log";
+  await chrome.storage.local.set({ [K]: [] });
   await renderLog();
 }
 
-function formatDomain(url) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch (_) {
-    return "Application page";
-  }
-}
-
-function getRelativeTime(date) {
-  const diffSec = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (diffSec < 60) return "Just now";
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour}h ago`;
-  const diffDay = Math.floor(diffHour / 24);
-  return `${diffDay}d ago`;
-}
-
 function escapeHtml(str) {
-  if (!str) return "";
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

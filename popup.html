@@ -16,6 +16,12 @@
       </div>
 
       <div class="header-nav">
+        <button id="trackerBtn" class="nav-btn" title="Job Tracker" aria-label="Job Tracker">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+          </svg>
+        </button>
         <button id="memoryBtn" class="nav-btn" title="Saved answers" aria-label="Saved answers">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
@@ -45,6 +51,12 @@
         <span id="tabType" class="site-tag">Application form</span>
       </div>
 
+      <!-- Unsupported Page Alert Banner -->
+      <div id="unsupportedBanner" class="hidden" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; font-size: 11.5px; color: #fca5a5; line-height: 1.4;">
+        <span style="font-weight: 600; display: block; margin-bottom: 2px;">⚠️ Page Not Supported</span>
+        <span id="unsupportedMsg">Browser internal pages cannot be filled. Navigate to a job posting or application form (e.g. Greenhouse, Lever, Workday) to use JobFill.</span>
+      </div>
+
       <!-- System Readiness Checklist -->
       <div class="readiness-row">
         <button id="keyCheck" class="readiness-tag" title="API Key settings">
@@ -64,14 +76,21 @@
         </button>
       </div>
 
-      <!-- Action Button -->
+      <!-- Action Button & Options -->
       <div class="action-block">
         <button id="fillBtn" class="btn-fill">
           <span class="btn-text" id="fillBtnText">Fill application</span>
           <kbd class="shortcut-key">Alt+Shift+F</kbd>
         </button>
 
-        <div id="statusRow" class="status-inline hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 11.5px;">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-dim, #71717a);">
+            <input type="checkbox" id="popupOverwriteToggle" />
+            <span>Overwrite existing answers</span>
+          </label>
+        </div>
+
+        <div id="statusRow" class="status-inline hidden" style="margin-top: 8px;">
           <span class="spinner" id="statusSpinner"></span>
           <span id="statusText" class="status-label">Working on form...</span>
         </div>

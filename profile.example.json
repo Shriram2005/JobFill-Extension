@@ -1,0 +1,104 @@
+{
+  "personal_info": {
+    "name": "Alex Morgan",
+    "title": "Full-Stack Software Engineer & Mobile Developer",
+    "location": "San Francisco, CA, USA",
+    "status": "Available for Full-time Roles",
+    "email": "alex.morgan@example.com",
+    "phone": "+1 (555) 234-5678",
+    "linkedin": "https://www.linkedin.com/in/alexmorgan-dev",
+    "github": "https://github.com/alexmorgan-dev",
+    "telegram": "@alexmorgan_dev",
+    "website": "https://alexmorgan.dev",
+    "address": "123 Market St",
+    "city": "San Francisco",
+    "state": "California",
+    "country": "United States",
+    "zip": "94105",
+    "work_authorization": "Authorized to work in the US without sponsorship",
+    "sponsorship_required": "No",
+    "notice_period": "2 weeks",
+    "willing_to_relocate": "Yes",
+    "gender": "Non-Binary",
+    "pronouns": "They/Them",
+    "veteran_status": "I am not a protected veteran",
+    "disability_status": "No, I do not have a disability",
+    "race_ethnicity": "Two or more races",
+    "job_source": "LinkedIn"
+  },
+  "summary": "Passionate Full-Stack Software Engineer with 4+ years of experience building scalable web and mobile applications using modern frameworks. Skilled in clean architecture, performance optimization, and responsive design.",
+  "stats": {
+    "projects_completed": "20+",
+    "years_experience": "4"
+  },
+  "skills": {
+    "core_competencies": [
+      "Full-Stack Web Development (React, TypeScript, Node.js)",
+      "Mobile App Development (React Native, Android)",
+      "API Design & Cloud Architecture (REST, GraphQL, AWS, Docker)",
+      "Database Design & Management (PostgreSQL, MongoDB, Redis)",
+      "Clean Code, Automated Testing & CI/CD Pipelines"
+    ],
+    "technologies": [
+      "JavaScript", "TypeScript", "React", "Node.js", "Python",
+      "Next.js", "Express", "PostgreSQL", "MongoDB", "Redis",
+      "HTML5", "CSS3", "Tailwind CSS", "Docker", "AWS", "Git",
+      "REST APIs", "GraphQL", "Jest", "CI/CD", "Linux"
+    ]
+  },
+  "experience": [
+    {
+      "role": "Senior Frontend Developer",
+      "company": "Apex Cloud Systems",
+      "duration": "2023 - Present",
+      "location": "San Francisco, CA (Remote)",
+      "key_achievements": [
+        "Led a team of 4 engineers in migrating core analytics dashboard to React and TypeScript, boosting load speed by 35%",
+        "Designed accessible, reusable design system components used by 12 internal engineering squads",
+        "Implemented real-time data streaming features using WebSockets and state management with Redux Toolkit"
+      ],
+      "technologies_used": ["React", "TypeScript", "Redux", "Tailwind CSS", "Jest"]
+    },
+    {
+      "role": "Software Engineer",
+      "company": "Nexus Interactive",
+      "duration": "2021 - 2023",
+      "location": "San Francisco, CA",
+      "key_achievements": [
+        "Built responsive customer portal handling over 100,000 monthly active users",
+        "Integrated secure payment gateways and OAuth2 authentication flows",
+        "Authored comprehensive unit and integration test suites achieving 88% code coverage"
+      ],
+      "technologies_used": ["JavaScript", "Node.js", "Express", "PostgreSQL", "Docker"]
+    }
+  ],
+  "education": [
+    {
+      "institution": "University of California, Berkeley",
+      "degree": "Bachelor of Science in Computer Science",
+      "duration": "2017 - 2021",
+      "grade": "3.8 GPA",
+      "location": "Berkeley, CA",
+      "key_courses": [
+        "Data Structures and Algorithms",
+        "Operating Systems",
+        "Database Management Systems",
+        "Computer Networks"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "title": "CloudMetrics — Infrastructure Monitoring Dashboard",
+      "description": "High-throughput telemetry dashboard showing real-time service health metrics with configurable alerts.",
+      "link": "https://github.com/alexmorgan-dev/cloudmetrics",
+      "technologies": ["React", "Go", "Prometheus", "Docker"]
+    },
+    {
+      "title": "TaskFlow — Collaborative Agile Workspace",
+      "description": "Kanban workspace application with real-time optimistic updates and offline synchronization.",
+      "link": "https://github.com/alexmorgan-dev/taskflow",
+      "technologies": ["Next.js", "TypeScript", "PostgreSQL", "Tailwind CSS"]
+    }
+  ]
+}

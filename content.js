@@ -1,106 +1,246 @@
-// content.js — injected on demand (via chrome.scripting.executeScript) when
-// the user clicks "Fill this application" in the popup. Runs once, top to
-// bottom, and never re-injects itself automatically.
+// content.js — Injected on demand (via chrome.scripting.executeScript) when
+// the user clicks "Fill application" or triggers the keyboard shortcut.
 //
-// IMPORTANT SCOPE NOTES (read before relying on this):
-// - This fills ONE page/step at a time. If a form spans multiple steps,
-//   click "Fill this application" again after you advance to the next step.
-// - <input type="file"> cannot be set programmatically for security reasons
-//   built into browsers — resume/cover-letter uploads are always flagged
-//   for you to attach by hand.
-// - This NEVER clicks a Submit/Apply button. That is a hard rule, not a
-//   setting.
+// Key Principles:
+// - Never submits or applies automatically.
+// - Local rules execute first (0 API cost, instant, 100% private).
+// - Preserves existing values by default unless overwrite is enabled.
+// - Full Undo snapshot to restore all fields at any time.
+// - Verified field setting with DOM feedback.
+// - Explicit confirmation for saving learned answers (with sensitive data exclusion).
+// - Explicit confirmation for resume attachment.
+// - Quick logging to the built-in Application Tracker.
+
+var _jobfillActiveBar = window._jobfillActiveBar || null;
+window._jobfillSnapshot = window._jobfillSnapshot || new Map();
 
 (async function jobfillRun() {
-  // Prevent concurrent runs if the script is injected again while already running
   if (window._jobfillRunning) return;
   window._jobfillRunning = true;
 
-  // Clear highlight data from any previous run on this page
+  // Clear per-run review tracking
   window._jobfillManualFields = [];
   window._jobfillHighlightedElements = [];
 
   const badge = jobfillCreateBadge();
-  badge.setStatus("Scanning page\u2026");
+  badge.setStatus("Scanning form fields…");
 
   try {
+    // 1. Check for CAPTCHA
     if (jobfillDetectCaptcha()) {
       badge.setStatus(
-        "CAPTCHA detected — please solve it yourself, then click Fill again.",
+        "CAPTCHA detected — please solve it, then click Fill again.",
         "warn"
       );
       return;
     }
 
-    let profile;
-    try {
-      const stored = await chrome.storage.local.get(JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE);
-      if (
-        stored &&
-        stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE] &&
-        typeof stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE] === "object" &&
-        Object.keys(stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE]).length > 0
-      ) {
-        profile = stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE];
-      } else {
-        const res = await fetch(chrome.runtime.getURL("profile.json"));
-        profile = await res.json();
-      }
-    } catch (e) {
+    // 2. Fetch User Profile & Preferences
+    const stored = await chrome.storage.local.get([
+      JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE,
+      JOBFILL_DEFAULTS.STORAGE_KEYS.OVERWRITE_EXISTING,
+      JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE_PHOTO,
+    ]);
+
+    const profile = stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE];
+    const overwriteExisting = Boolean(stored[JOBFILL_DEFAULTS.STORAGE_KEYS.OVERWRITE_EXISTING]);
+    const profilePhoto = stored[JOBFILL_DEFAULTS.STORAGE_KEYS.PROFILE_PHOTO];
+
+    if (!profile || typeof profile !== "object" || Object.keys(profile).length === 0) {
       badge.setStatus(
-        "No profile found. Please upload or save your profile in extension settings.",
+        "No profile found in storage. Open JobFill settings to configure your profile.",
         "error"
       );
       return;
     }
 
+    // 3. Scan Visible Fillable Fields
     const fields = jobfillScanFields();
     if (fields.length === 0) {
-      badge.setStatus("No fillable form fields found on this page.", "warn");
+      badge.setStatus(
+        "No fillable form fields found. (If inside an iframe, open the direct link)",
+        "warn"
+      );
       return;
     }
 
-    const counts = { rule: 0, ai: 0, manual: 0 };
+    // Listen for manual edits so the user can easily save custom answers
+    jobfillAttachEditListeners(fields);
 
-    // Pass 1 — free, local matching.
+    const counts = { rule: 0, ai: 0, manual: 0, skipped: 0 };
     const leftoverShort = [];
     const leftoverEssay = [];
     const leftoverChoice = [];
     const leftoverResume = [];
+    const leftoverPhoto = [];
 
+    // Pass 1: Local Rule Matching
     for (const field of fields) {
-      if (field.matchType === "file") {
-        if (/resume|cv|curriculum vitae/i.test(field.label)) {
+      // 1. Handle file uploads (Photos & Resumes)
+      if (
+        field.matchType === "file" ||
+        field.matchType === "file-resume" ||
+        field.matchType === "file-photo"
+      ) {
+        if (
+          field.matchType === "file-resume" ||
+          /resume|cv|curriculum\s*vitae/i.test(field.label || field.name || "")
+        ) {
           leftoverResume.push(field);
+        } else if (
+          field.matchType === "file-photo" ||
+          /photo|picture|avatar|headshot|portrait/i.test(field.label || field.name || "")
+        ) {
+          leftoverPhoto.push(field);
         } else {
-          jobfillMarkManual(field, "File upload — attach this yourself.");
+          jobfillMarkManual(field, "File upload — please attach manually.");
           counts.manual++;
         }
         continue;
       }
-      if (field.matchType === "select" || field.matchType === "radio" || field.matchType === "checkbox") {
+
+      // 2. Handle Radio Groups
+      if (field.matchType === "radio-group") {
+        const hasExisting = field.options.some((opt) => {
+          const optEl = document.querySelector(`[data-jobfill-id="${opt.id}"]`);
+          return optEl && optEl.checked;
+        });
+        if (!overwriteExisting && hasExisting) {
+          counts.skipped++;
+          continue;
+        }
+
+        const matchedOpt =
+          typeof jobfillMatchRadioGroup === "function"
+            ? jobfillMatchRadioGroup(field, profile)
+            : null;
+
+        if (matchedOpt) {
+          const optEl = document.querySelector(`[data-jobfill-id="${matchedOpt.id}"]`);
+          if (optEl) {
+            jobfillSnapshotField(optEl, "radio");
+            if (!optEl.checked) optEl.click();
+            optEl.checked = true;
+            const nativeSetter = Object.getOwnPropertyDescriptor(
+              HTMLInputElement.prototype,
+              "checked"
+            )?.set;
+            if (nativeSetter) nativeSetter.call(optEl, true);
+            optEl.dispatchEvent(new Event("input", { bubbles: true }));
+            optEl.dispatchEvent(new Event("change", { bubbles: true }));
+            jobfillMarkFilled({ id: matchedOpt.id }, "rule");
+            counts.rule++;
+          } else {
+            leftoverChoice.push(field);
+          }
+        } else {
+          leftoverChoice.push(field);
+        }
+        continue;
+      }
+
+      const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+      if (!el) continue;
+
+      // Check if field already contains a value
+      if (!overwriteExisting && jobfillHasValue(el, field.matchType)) {
+        counts.skipped++;
+        continue;
+      }
+
+      // 3. Handle Dropdowns / Select / Combobox
+      if (field.matchType === "select" || field.matchType === "combobox") {
+        const matched =
+          typeof jobfillMatchSelectOption === "function"
+            ? jobfillMatchSelectOption(field, profile)
+            : null;
+
+        if (matched) {
+          jobfillSnapshotField(el, field.matchType);
+          const success = jobfillFillField(field, matched);
+          if (success) {
+            jobfillMarkFilled(field, "rule");
+            counts.rule++;
+          } else {
+            leftoverChoice.push(field);
+          }
+        } else {
+          leftoverChoice.push(field);
+        }
+        continue;
+      }
+
+      // 4. Handle Checkboxes (Agreements, certifications & skills)
+      if (field.matchType === "checkbox") {
+        const isAgreement =
+          /agree|certify|consent|confirm|acknowledge|truthful|accept|terms|accurate|signature/i.test(
+            field.rawLabel || field.label || field.name || ""
+          );
+
+        if (isAgreement) {
+          jobfillSnapshotField(el, "checkbox");
+          const success = jobfillFillField(field, "yes");
+          if (success) {
+            jobfillMarkFilled(field, "rule");
+            counts.rule++;
+          } else {
+            leftoverChoice.push(field);
+          }
+          continue;
+        }
+
+        const allSkills = [
+          ...(profile.skills?.technologies || []),
+          ...(profile.skills?.core_competencies || []),
+        ];
+        const labelLower = (field.rawLabel || field.label || "").trim().toLowerCase();
+        const hasSkill = allSkills.some(
+          (s) => s.toLowerCase() === labelLower || labelLower.includes(s.toLowerCase())
+        );
+
+        if (hasSkill) {
+          jobfillSnapshotField(el, "checkbox");
+          const success = jobfillFillField(field, "yes");
+          if (success) {
+            jobfillMarkFilled(field, "rule");
+            counts.rule++;
+          } else {
+            leftoverChoice.push(field);
+          }
+          continue;
+        }
+
         leftoverChoice.push(field);
         continue;
       }
+
+      // 5. Handle Long Essays
       if (field.matchType === "textarea-long") {
         leftoverEssay.push(field);
         continue;
       }
+
+      // 6. Try local rule match for text, email, tel, date, month, etc.
       const value = jobfillMatchField(field, profile);
-      if (value !== null) {
-        jobfillFillField(field, value);
-        jobfillMarkFilled(field, "rule");
-        counts.rule++;
+      if (value !== null && String(value).trim() !== "") {
+        jobfillSnapshotField(el, field.matchType);
+        const success = jobfillFillField(field, value);
+        if (success) {
+          jobfillMarkFilled(field, "rule");
+          counts.rule++;
+        } else {
+          jobfillMarkManual(field, "Could not set value — verify manually.");
+          counts.manual++;
+        }
       } else {
         leftoverShort.push(field);
       }
     }
 
-    // Pass 2 — short/leftover + choice fields go to Gemini Flash as one
-    // batched field-mapping call (cheap, and one call beats N calls).
+    // Pass 2: Gemini Field Mapping (batched for remaining short + choice fields)
     const mappingTargets = [...leftoverShort, ...leftoverChoice];
     if (mappingTargets.length > 0) {
-      badge.setStatus(`Asking Gemini to map ${mappingTargets.length} remaining field(s)…`);
+      badge.setStatus(`AI mapping ${mappingTargets.length} field(s)…`);
       try {
         const mapping = await jobfillRequestFieldMapping(mappingTargets, profile);
         for (const field of mappingTargets) {
@@ -111,77 +251,170 @@
             String(raw).includes(JOBFILL_DEFAULTS.NEEDS_INPUT_TOKEN) ||
             String(raw).trim() === ""
           ) {
-            jobfillMarkManual(field, "Needs your input — not enough profile data.");
+            jobfillMarkManual(field, "Needs your input — profile lacks this info.");
             counts.manual++;
-          } else {
-            jobfillFillField(field, String(raw));
+            continue;
+          }
+
+          // Handle Radio Group AI selection
+          if (field.matchType === "radio-group") {
+            const rawStr = String(raw).trim().toLowerCase();
+            const isYes = /^(yes|true|y|1)$/i.test(rawStr);
+            const isNo = /^(no|false|n|0)$/i.test(rawStr);
+            let chosen = null;
+
+            for (const opt of field.options) {
+              const optLabel = String(opt.label || "").trim().toLowerCase();
+              const optVal = String(opt.value || "").trim().toLowerCase();
+              if (
+                isYes &&
+                (/^(yes|true|y|1)$/i.test(optVal) ||
+                  /^(yes|true|y|1)$/i.test(optLabel) ||
+                  optLabel.startsWith("yes"))
+              ) {
+                chosen = opt;
+                break;
+              }
+              if (
+                isNo &&
+                (/^(no|false|n|0)$/i.test(optVal) ||
+                  /^(no|false|n|0)$/i.test(optLabel) ||
+                  optLabel.startsWith("no"))
+              ) {
+                chosen = opt;
+                break;
+              }
+              if (
+                optLabel === rawStr ||
+                optVal === rawStr ||
+                optLabel.includes(rawStr) ||
+                rawStr.includes(optLabel)
+              ) {
+                chosen = opt;
+                break;
+              }
+            }
+
+            if (chosen) {
+              const optEl = document.querySelector(`[data-jobfill-id="${chosen.id}"]`);
+              if (optEl) {
+                jobfillSnapshotField(optEl, "radio");
+                if (!optEl.checked) optEl.click();
+                optEl.checked = true;
+                const nativeSetter = Object.getOwnPropertyDescriptor(
+                  HTMLInputElement.prototype,
+                  "checked"
+                )?.set;
+                if (nativeSetter) nativeSetter.call(optEl, true);
+                optEl.dispatchEvent(new Event("input", { bubbles: true }));
+                optEl.dispatchEvent(new Event("change", { bubbles: true }));
+                jobfillMarkFilled({ id: chosen.id }, "ai");
+                counts.ai++;
+              } else {
+                jobfillMarkManual(field, "Could not find radio element — check manually.");
+                counts.manual++;
+              }
+            } else {
+              jobfillMarkManual(field, "Verification failed — verify manually.");
+              counts.manual++;
+            }
+            continue;
+          }
+
+          const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+          if (!el) continue;
+
+          jobfillSnapshotField(el, field.matchType);
+          const success = jobfillFillField(field, String(raw));
+          if (success) {
             jobfillMarkFilled(field, "ai");
             counts.ai++;
+          } else {
+            jobfillMarkManual(field, "Verification failed — verify manually.");
+            counts.manual++;
           }
         }
       } catch (err) {
         mappingTargets.forEach((f) =>
-          jobfillMarkManual(f, "AI mapping failed — fill this one by hand.")
+          jobfillMarkManual(f, "AI mapping failed — please fill manually.")
         );
         counts.manual += mappingTargets.length;
         console.error("JobFill mapping error:", err);
       }
     }
 
-    const jobContext = (leftoverEssay.length > 0 || leftoverResume.length > 0) ? jobfillExtractJobContext() : "";
+    const jobContext =
+      leftoverEssay.length > 0 || leftoverResume.length > 0
+        ? jobfillExtractJobContext()
+        : "";
 
-    // Pass 3 — genuinely open-ended questions go to Sonnet, one call each,
-    // since each deserves its own tailored answer.
+    // Pass 3: Open-ended Written Answers (Gemini tailored responses)
     if (leftoverEssay.length > 0) {
       for (const field of leftoverEssay) {
-        badge.setStatus(`Drafting an answer for: "${jobfillTruncate(field.label, 50)}"…`);
+        badge.setStatus(`Drafting answer: "${jobfillTruncate(field.label, 40)}"…`);
         try {
           const answer = await jobfillRequestWrittenAnswer(field, profile, jobContext);
+          const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
           if (!answer || answer.includes(JOBFILL_DEFAULTS.NEEDS_INPUT_TOKEN)) {
-            jobfillMarkManual(field, "Needs your input — not enough profile data.");
+            jobfillMarkManual(field, "Needs your input — profile lacks this info.");
             counts.manual++;
-          } else {
-            jobfillFillField(field, answer);
-            jobfillMarkFilled(field, "ai");
-            counts.ai++;
+          } else if (el) {
+            jobfillSnapshotField(el, field.matchType);
+            const success = jobfillFillField(field, answer);
+            if (success) {
+              jobfillMarkFilled(field, "ai");
+              counts.ai++;
+            } else {
+              jobfillMarkManual(field, "Could not set answer — check manually.");
+              counts.manual++;
+            }
           }
         } catch (err) {
-          jobfillMarkManual(field, "AI drafting failed — fill this one by hand.");
+          jobfillMarkManual(field, "AI drafting error — fill manually.");
           counts.manual++;
           console.error("JobFill writing error:", err);
         }
       }
     }
 
-    // Pass 4 — Resumes
-    if (leftoverResume.length > 0) {
-      for (const field of leftoverResume) {
-        badge.setStatus(`Choosing best resume for: "${jobfillTruncate(field.label, 50)}"…`);
-        try {
-          const resume = await jobfillRequestResume(jobContext);
-          if (resume) {
-            jobfillFillFile(field, resume);
-            jobfillMarkFilled(field, "ai");
-            counts.ai++;
-          } else {
-            jobfillMarkManual(field, "No resumes uploaded in settings.");
-            counts.manual++;
-          }
-        } catch (err) {
-          jobfillMarkManual(field, "Resume AI selection failed.");
+    // Pass 4: File Attachments (Profile Photos & Resumes)
+    if (leftoverPhoto.length > 0) {
+      for (const field of leftoverPhoto) {
+        if (profilePhoto && profilePhoto.data) {
+          badge.promptPhotoAttach(field, profilePhoto);
+        } else {
+          jobfillMarkManual(
+            field,
+            "Profile photo detected — upload your photo in JobFill settings to auto-attach."
+          );
           counts.manual++;
-          console.error("JobFill resume error:", err);
         }
       }
     }
 
-    badge.setStatus(
-      `Done — ${counts.rule} filled locally, ${counts.ai} filled by AI, ${counts.manual} need your input. Review before you submit.`,
-      "done",
-      counts,
-      fields
-    );
+    if (leftoverResume.length > 0) {
+      for (const field of leftoverResume) {
+        badge.setStatus(`Selecting best resume for: "${jobfillTruncate(field.label, 40)}"…`);
+        try {
+          const resumeSelection = await jobfillRequestResume(jobContext);
+          if (resumeSelection && resumeSelection.data) {
+            badge.promptResumeAttach(field, resumeSelection);
+          } else {
+            jobfillMarkManual(field, "No resumes configured in Settings.");
+            counts.manual++;
+          }
+        } catch (err) {
+          jobfillMarkManual(field, "Resume selection error.");
+          counts.manual++;
+          console.error("JobFill resume selection error:", err);
+        }
+      }
+    }
 
+    // Update floating badge with summary
+    badge.showSummary(counts, fields);
+
+    // Append to local log
     await jobfillAppendLog({
       url: location.href,
       title: document.title,
@@ -189,24 +422,26 @@
       filledByRule: counts.rule,
       filledByAI: counts.ai,
       needsManual: counts.manual,
+      skipped: counts.skipped,
     });
-
-    // Inject the "Save My Answers" button for continual learning
-    jobfillInjectLearningButton(fields);
   } catch (err) {
     console.error("JobFill fatal error:", err);
     badge.setStatus(`Something went wrong: ${err.message}`, "error");
   } finally {
-    // Allow another Fill run once this one is complete (or has errored out)
     window._jobfillRunning = false;
   }
 })();
 
-// ---------- scanning ----------
+// ---------- Form Field Scanning & DOM Analysis ----------
 
 function jobfillScanFields() {
-  const nodes = Array.from(document.querySelectorAll("input, select, textarea, [contenteditable='true'], [role='textbox']"));
+  const nodes = Array.from(
+    document.querySelectorAll(
+      "input, select, textarea, [contenteditable='true'], [role='textbox'], [role='combobox']"
+    )
+  );
   const fields = [];
+  const radioGroups = new Map();
   let counter = 0;
 
   for (const el of nodes) {
@@ -220,23 +455,35 @@ function jobfillScanFields() {
 
     const label = jobfillFindLabel(el);
     let matchType;
-    if (el.tagName === "SELECT") matchType = "select";
-    else if (el.type === "radio") matchType = "radio";
-    else if (el.type === "checkbox") matchType = "checkbox";
-    else if (el.type === "file") matchType = "file";
-    else if (el.tagName === "TEXTAREA") {
-      // Heuristic: short textareas (small maxlength, or rows <= 2) are
-      // treated like text inputs; larger ones are "essay" questions that
-      // deserve a written answer rather than a direct profile lookup.
+    if (el.tagName === "SELECT") {
+      matchType = "select";
+    } else if (el.type === "radio") {
+      matchType = "radio";
+    } else if (el.type === "checkbox") {
+      matchType = "checkbox";
+    } else if (el.type === "file") {
+      const isResume = /resume|cv|curriculum\s*vitae/i.test(label || el.name || el.id || "");
+      const isPhoto =
+        /photo|picture|avatar|headshot|portrait|candidate\s*image|profile\s*image/i.test(
+          label || el.name || el.id || ""
+        ) || (el.accept && /image/i.test(el.accept) && !isResume);
+      matchType = isResume ? "file-resume" : isPhoto ? "file-photo" : "file";
+    } else if (el.type === "date") {
+      matchType = "date";
+    } else if (el.type === "month") {
+      matchType = "month";
+    } else if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-haspopup") === "listbox") {
+      matchType = "combobox";
+    } else if (el.tagName === "TEXTAREA") {
       const maxLen = el.maxLength && el.maxLength > 0 ? el.maxLength : Infinity;
-      matchType = maxLen <= 100 || el.rows <= 2 ? "textarea-short" : "textarea-long";
+      matchType = maxLen <= 120 || el.rows <= 2 ? "textarea-short" : "textarea-long";
     } else if (el.hasAttribute("contenteditable") || el.getAttribute("role") === "textbox") {
       matchType = "textarea-long";
     } else {
       matchType = el.type || "text";
     }
 
-    // Detect group question for radios and checkboxes (e.g. from <fieldset><legend> or role="radiogroup")
+    // Detect group question for radios and checkboxes
     let groupQuestion = "";
     if (matchType === "radio" || matchType === "checkbox") {
       const fieldset = el.closest("fieldset");
@@ -249,78 +496,209 @@ function jobfillScanFields() {
       if (!groupQuestion) {
         const groupContainer = el.closest("[role='radiogroup'], [role='group']");
         if (groupContainer) {
-          const groupLabel = groupContainer.getAttribute("aria-label") ||
-            (groupContainer.getAttribute("aria-labelledby") && document.getElementById(groupContainer.getAttribute("aria-labelledby"))?.textContent);
+          const groupLabel =
+            groupContainer.getAttribute("aria-label") ||
+            (groupContainer.getAttribute("aria-labelledby") &&
+              document.getElementById(groupContainer.getAttribute("aria-labelledby"))?.textContent);
           if (groupLabel) groupQuestion = groupLabel.trim();
+        }
+      }
+      if (!groupQuestion && el.name) {
+        let prev = el.closest("div")?.previousElementSibling;
+        if (prev && /h[1-6]|p|label/i.test(prev.tagName) && prev.textContent.trim().length < 150) {
+          groupQuestion = prev.textContent.trim();
         }
       }
     }
 
+    // Handle Radio Buttons: Group by name or group container
+    if (matchType === "radio") {
+      const groupKey = el.name
+        ? `name:${el.name}`
+        : groupQuestion
+        ? `q:${groupQuestion}`
+        : `id:${id}`;
+      if (!radioGroups.has(groupKey)) {
+        radioGroups.set(groupKey, {
+          id: `jobfill-group-${groupKey.replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+          tag: "radiogroup",
+          matchType: "radio-group",
+          groupQuestion: groupQuestion,
+          label: groupQuestion || label || el.name || "Radio Selection",
+          name: el.name || "",
+          options: [],
+        });
+      }
+      const grp = radioGroups.get(groupKey);
+      grp.options.push({
+        id,
+        label: label || el.value || `Option ${grp.options.length + 1}`,
+        value: el.value || "",
+      });
+      continue;
+    }
+
     const autocomplete = el.getAttribute("autocomplete") || "";
+    const maxLength = el.maxLength && el.maxLength > 0 ? el.maxLength : null;
 
     const field = {
       id,
       tag: el.tagName.toLowerCase(),
       matchType,
-      label: groupQuestion ? `${groupQuestion} [Option: ${label || el.value}]` : label,
+      label,
       rawLabel: label,
       groupQuestion,
       autocomplete,
+      maxLength,
       placeholder: el.getAttribute("placeholder") || "",
       name: el.getAttribute("name") || "",
     };
 
     if (matchType === "select") {
-      field.options = Array.from(el.options).map((o) => o.textContent.trim()).filter(Boolean);
+      field.options = Array.from(el.options)
+        .map((o) => o.textContent.trim())
+        .filter(Boolean);
     }
-    if (matchType === "radio" || matchType === "checkbox") {
+    if (matchType === "combobox") {
+      const listId = el.getAttribute("aria-controls") || el.getAttribute("aria-owns");
+      if (listId) {
+        const listEl = document.getElementById(listId);
+        if (listEl) {
+          field.options = Array.from(listEl.querySelectorAll("[role='option'], li, div"))
+            .map((o) => o.textContent.trim())
+            .filter(Boolean);
+        }
+      }
+    }
+    if (matchType === "checkbox") {
       field.groupValue = el.value;
     }
 
     fields.push(field);
   }
+
+  // Append composite radio groups into scanned fields
+  for (const grp of radioGroups.values()) {
+    fields.push(grp);
+  }
+
   return fields;
 }
 
 function jobfillIsVisible(el) {
-  if (!el.offsetParent && el.tagName !== "INPUT") return false;
+  if (!el) return false;
+  if (el.disabled || el.readOnly) return false;
+  if (el.closest("fieldset[disabled]")) return false;
+  if (el.closest("[aria-hidden='true']")) return false;
+
   const style = window.getComputedStyle(el);
-  return style.display !== "none" && style.visibility !== "hidden";
+  if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+    return false;
+  }
+
+  // Geometry check
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0 && style.position !== "fixed") {
+    return false;
+  }
+
+  return true;
 }
 
 function jobfillFindLabel(el) {
-  if (el.id) {
-    const forLabel = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-    if (forLabel && forLabel.textContent.trim()) return forLabel.textContent.trim();
-  }
-  const closestLabel = el.closest("label");
-  if (closestLabel && closestLabel.textContent.trim()) {
-    return closestLabel.textContent.replace(el.value || "", "").trim();
-  }
-  const ariaLabel = el.getAttribute("aria-label");
-  if (ariaLabel) return ariaLabel.trim();
+  // 1. aria-labelledby
   const labelledBy = el.getAttribute("aria-labelledby");
   if (labelledBy) {
-    const ref = document.getElementById(labelledBy);
-    if (ref && ref.textContent.trim()) return ref.textContent.trim();
+    const ids = labelledBy.split(/\s+/);
+    const text = ids
+      .map((id) => document.getElementById(id)?.textContent?.trim())
+      .filter(Boolean)
+      .join(" ");
+    if (text) return text;
   }
-  // Walk a few previous siblings/parents looking for label-ish text.
+
+  // 2. aria-label
+  const ariaLabel = el.getAttribute("aria-label");
+  if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+
+  // 3. label[for="id"]
+  if (el.id) {
+    try {
+      const forLabel = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (forLabel && forLabel.textContent.trim()) return forLabel.textContent.trim();
+    } catch (_) {}
+  }
+
+  // 4. Closest wrapping label
+  const closestLabel = el.closest("label");
+  if (closestLabel && closestLabel.textContent.trim()) {
+    const clone = closestLabel.cloneNode(true);
+    clone.querySelectorAll("input, select, textarea").forEach((child) => child.remove());
+    if (clone.textContent.trim()) return clone.textContent.trim();
+  }
+
+  // 5. Surrounding container / heading text
   let node = el.previousElementSibling;
   let hops = 0;
   while (node && hops < 3) {
     const text = node.textContent && node.textContent.trim();
-    if (text && text.length < 150) return text;
+    if (text && text.length > 1 && text.length < 150) return text;
     node = node.previousElementSibling;
     hops++;
   }
+
   return el.getAttribute("placeholder") || el.getAttribute("name") || "";
 }
 
-// ---------- filling & marking ----------
+function jobfillHasValue(el, matchType) {
+  if (!el) return false;
+  if (matchType === "select") {
+    return el.selectedIndex > 0 && String(el.value || "").trim() !== "";
+  }
+  if (matchType === "radio" || matchType === "checkbox") {
+    return Boolean(el.checked);
+  }
+  if (el.hasAttribute("contenteditable") || el.getAttribute("role") === "textbox") {
+    return (el.textContent || "").trim().length > 0;
+  }
+  return String(el.value || "").trim().length > 0;
+}
+
+// Snapshot original values prior to modifying for full Undo support
+function jobfillSnapshotField(el, matchType) {
+  if (!el) return;
+  const id = el.getAttribute("data-jobfill-id");
+  if (!id || window._jobfillSnapshot.has(id)) return;
+
+  if (matchType === "select") {
+    window._jobfillSnapshot.set(id, {
+      type: "select",
+      value: el.value,
+      selectedIndex: el.selectedIndex,
+    });
+  } else if (matchType === "radio" || matchType === "checkbox") {
+    window._jobfillSnapshot.set(id, {
+      type: "check",
+      checked: el.checked,
+    });
+  } else if (el.hasAttribute("contenteditable") || el.getAttribute("role") === "textbox") {
+    window._jobfillSnapshot.set(id, {
+      type: "contenteditable",
+      text: el.textContent,
+    });
+  } else {
+    window._jobfillSnapshot.set(id, {
+      type: "value",
+      value: el.value,
+    });
+  }
+}
+
+// ---------- Field Filling & Value Verification ----------
 
 function jobfillFillField(field, value) {
   const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
-  if (!el) return;
+  if (!el) return false;
 
   if (field.matchType === "select") {
     const valTrimmed = String(value).trim().toLowerCase();
@@ -328,15 +706,48 @@ function jobfillFillField(field, value) {
       (o) =>
         o.textContent.trim().toLowerCase() === valTrimmed ||
         o.value.trim().toLowerCase() === valTrimmed ||
-        (valTrimmed.length > 2 && o.textContent.trim().toLowerCase().includes(valTrimmed))
+        (valTrimmed.length > 2 && o.textContent.trim().toLowerCase().includes(valTrimmed)) ||
+        (o.textContent.trim().length > 2 && valTrimmed.includes(o.textContent.trim().toLowerCase()))
     );
     if (match) {
-      el.value = match.value;
       el.selectedIndex = match.index;
+      el.value = match.value;
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value"
+      )?.set;
+      if (nativeSetter) nativeSetter.call(el, match.value);
       el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.dispatchEvent(new Event("blur", { bubbles: true }));
+      return el.selectedIndex === match.index || el.value === match.value;
     }
-    return;
+    return false;
+  }
+
+  if (field.matchType === "combobox") {
+    const proto = HTMLInputElement.prototype;
+    const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (nativeSetter) nativeSetter.call(el, value);
+    else el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    return true;
+  }
+
+  if (field.matchType === "date" || field.matchType === "month") {
+    const formatted =
+      typeof jobfillFormatDate === "function"
+        ? jobfillFormatDate(value, field.matchType)
+        : String(value);
+    const proto = HTMLInputElement.prototype;
+    const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (nativeSetter) nativeSetter.call(el, formatted);
+    else el.value = formatted;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return el.value === formatted || Boolean(el.value);
   }
 
   if (field.matchType === "radio" || field.matchType === "checkbox") {
@@ -344,20 +755,37 @@ function jobfillFillField(field, value) {
     const fieldVal = String(field.groupValue || el.value || "").trim().toLowerCase();
     const fieldLabel = String(field.rawLabel || field.label || "").trim().toLowerCase();
 
-    const isYes = /^(yes|true|y|1)$/i.test(valStr);
-    const isNo = /^(no|false|n|0)$/i.test(valStr);
+    const isYes = /^(yes|true|y|1|agree)$/i.test(valStr);
+    const isNo = /^(no|false|n|0|disagree)$/i.test(valStr);
 
     let shouldCheck = false;
     if (isYes) {
-      if (fieldVal === "yes" || fieldVal === "true" || fieldVal === "1" || /^(yes|agree)$/i.test(fieldLabel)) {
+      if (
+        fieldVal === "yes" ||
+        fieldVal === "true" ||
+        fieldVal === "1" ||
+        /^(yes|agree)$/i.test(fieldLabel) ||
+        fieldLabel.startsWith("yes")
+      ) {
         shouldCheck = true;
       }
     } else if (isNo) {
-      if (fieldVal === "no" || fieldVal === "false" || fieldVal === "0" || /^(no|disagree)$/i.test(fieldLabel)) {
+      if (
+        fieldVal === "no" ||
+        fieldVal === "false" ||
+        fieldVal === "0" ||
+        /^(no|disagree)$/i.test(fieldLabel) ||
+        fieldLabel.startsWith("no")
+      ) {
         shouldCheck = true;
       }
     } else {
-      if (valStr === fieldVal || valStr === fieldLabel || fieldLabel.includes(valStr) || valStr.includes(fieldLabel)) {
+      if (
+        valStr === fieldVal ||
+        valStr === fieldLabel ||
+        fieldLabel.includes(valStr) ||
+        valStr.includes(fieldLabel)
+      ) {
         shouldCheck = true;
       }
     }
@@ -367,55 +795,77 @@ function jobfillFillField(field, value) {
     }
 
     if (shouldCheck) {
+      if (!el.checked) el.click();
       el.checked = true;
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "checked"
+      )?.set;
+      if (nativeSetter) nativeSetter.call(el, true);
       el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
+      return el.checked === true;
     }
-    return;
+    return false;
   }
 
   if (el.hasAttribute("contenteditable") || el.getAttribute("role") === "textbox") {
     el.textContent = value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
-    return;
+    return (el.textContent || "").trim() === String(value).trim();
   }
 
-  // React 16+ / Vue / modern framework controlled component prototype setter bypass
-  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  // React / Vue / controlled input prototype setter bypass
+  const proto =
+    el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
   if (nativeSetter) {
     nativeSetter.call(el, value);
   } else {
     el.value = value;
   }
+
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
+  el.dispatchEvent(new Event("blur", { bubbles: true }));
+
+  // Verify that the element accepted the new value
+  return el.value === String(value);
 }
 
-function jobfillFillFile(field, resume) {
+function jobfillFillFile(field, fileData) {
   const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
-  if (!el) return;
+  if (!el || !fileData || !fileData.data) return false;
 
-  const dataUriParts = resume.data.split(',');
-  const byteString = atob(dataUriParts[1]);
-  const mimeString = dataUriParts[0].split(':')[1].split(';')[0];
-  const ab = new ArrayBuffer(byteString.length);
-  const ia = new Uint8Array(ab);
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i);
+  try {
+    const dataUriParts = fileData.data.split(",");
+    const byteString = atob(dataUriParts[1]);
+    const mimeString =
+      dataUriParts[0].split(":")[1]?.split(";")[0] ||
+      fileData.mimeType ||
+      "application/octet-stream";
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    const blob = new Blob([ab], { type: mimeString });
+    const defaultName = mimeString.includes("image") ? "profile_photo.jpg" : "Resume.pdf";
+    const file = new File([blob], fileData.filename || defaultName, { type: mimeString });
+
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(file);
+    el.files = dataTransfer.files;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+
+    return el.files && el.files.length > 0;
+  } catch (err) {
+    console.error("JobFill file upload error:", err);
+    return false;
   }
-  const blob = new Blob([ab], { type: mimeString });
-  const file = new File([blob], resume.filename, { type: mimeString });
-
-  const dataTransfer = new DataTransfer();
-  dataTransfer.items.add(file);
-  el.files = dataTransfer.files;
-  el.dispatchEvent(new Event("change", { bubbles: true }));
 }
-
-
-
 
 function jobfillMarkFilled(field, source) {
   const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
@@ -424,9 +874,7 @@ function jobfillMarkFilled(field, source) {
   const color = source === "rule" ? "#10b981" : "#3b82f6";
   el.style.setProperty("outline", `1.5px solid ${color}`, "important");
   el.style.setProperty("outline-offset", "1px", "important");
-  el.title = source === "rule" 
-    ? "Filled by JobFill (profile match)" 
-    : "Filled by JobFill (AI)";
+  el.title = source === "rule" ? "Filled by JobFill (Profile Match)" : "Filled by JobFill (AI)";
   window._jobfillHighlightedElements.push(el);
 }
 
@@ -441,7 +889,557 @@ function jobfillMarkManual(field, reason) {
   window._jobfillHighlightedElements.push(el);
 }
 
-// ---------- CAPTCHA detection ----------
+// ---------- User Input Observation & Sensitive Filter ----------
+
+function jobfillAttachEditListeners(fields) {
+  for (const field of fields) {
+    const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+    if (!el || el.getAttribute("data-jobfill-observed")) continue;
+    el.setAttribute("data-jobfill-observed", "true");
+
+    const onEdit = () => {
+      el.setAttribute("data-jobfill-user-edited", "true");
+    };
+    el.addEventListener("input", onEdit, { passive: true });
+    el.addEventListener("change", onEdit, { passive: true });
+  }
+}
+
+function jobfillIsSensitiveField(labelOrName) {
+  const text = String(labelOrName || "").toLowerCase();
+  const sensitivePatterns = [
+    /pass(word|code)?/i,
+    /ssn|social\s*security/i,
+    /pin\b/i,
+    /cvv|cvc|security\s*code/i,
+    /credit\s*card|debit\s*card|card\s*number/i,
+    /bank\s*account|routing\s*number|iban/i,
+    /driver'?s?\s*license|passport/i,
+    /secret/i,
+  ];
+  return sensitivePatterns.some((pattern) => pattern.test(text));
+}
+
+// ---------- Floating Badge Toolbar (Shadow DOM) ----------
+
+function jobfillCreateBadge() {
+  if (_jobfillActiveBar && _jobfillActiveBar.remove) {
+    _jobfillActiveBar.remove();
+  }
+
+  const host = document.createElement("div");
+  host.setAttribute("data-jobfill-toolbar", "true");
+  host.style.position = "fixed";
+  host.style.bottom = "16px";
+  host.style.right = "16px";
+  host.style.zIndex = "2147483647";
+  document.documentElement.appendChild(host);
+
+  const shadow = host.attachShadow({ mode: "open" });
+  const style = document.createElement("style");
+  style.textContent = `
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    
+    .bar {
+      font-size: 12px;
+      line-height: 1.4;
+      background: #121215;
+      color: #f4f4f5;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 8px 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: fadeIn 0.15s ease;
+      max-width: 540px;
+    }
+
+    .bar-spinner {
+      width: 12px;
+      height: 12px;
+      border: 1.5px solid #3f3f46;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    .bar-status {
+      color: #d4d4d8;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pill-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .stat-pill {
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .pill-rule { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .pill-ai { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .pill-manual { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    .bar-btn {
+      background: #1e1e24;
+      border: 1px solid #3f3f46;
+      color: #f4f4f5;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .bar-btn:hover {
+      background: #27272a;
+      border-color: #52525b;
+    }
+    .bar-btn-accent {
+      background: #2563eb;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+    .bar-btn-accent:hover {
+      background: #1d4ed8;
+    }
+    .bar-btn-danger {
+      border-color: #7f1d1d;
+      color: #f87171;
+    }
+    .bar-btn-danger:hover {
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .bar-close {
+      background: none;
+      border: none;
+      color: #71717a;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0 4px;
+      line-height: 1;
+    }
+    .bar-close:hover {
+      color: #f4f4f5;
+    }
+
+    /* Modal inside shadow DOM */
+    .modal-overlay {
+      position: fixed;
+      bottom: 60px;
+      right: 16px;
+      width: 380px;
+      max-height: 400px;
+      background: #18181b;
+      border: 1px solid #3f3f46;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 10;
+    }
+    .modal-header {
+      padding: 10px 14px;
+      background: #1f1f23;
+      border-bottom: 1px solid #27272a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .modal-body {
+      padding: 12px;
+      overflow-y: auto;
+      max-height: 280px;
+      font-size: 11.5px;
+    }
+    .entry-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #27272a;
+    }
+    .entry-label {
+      font-weight: 600;
+      color: #93c5fd;
+      display: block;
+      margin-bottom: 2px;
+    }
+    .entry-val {
+      color: #e4e4e7;
+    }
+    .modal-footer {
+      padding: 8px 12px;
+      background: #1f1f23;
+      border-top: 1px solid #27272a;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .hidden { display: none !important; }
+
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  `;
+
+  const root = document.createElement("div");
+  root.innerHTML = `
+    <div class="bar" id="bar">
+      <span class="bar-spinner" id="spinner"></span>
+      <span class="bar-status" id="statusMsg">Initializing JobFill…</span>
+      <div class="pill-group hidden" id="pillGroup">
+        <span class="stat-pill pill-rule" id="rulePill">0 rule</span>
+        <span class="stat-pill pill-ai" id="aiPill">0 ai</span>
+        <span class="stat-pill pill-manual" id="manualPill">0 review</span>
+      </div>
+      <button class="bar-btn hidden" id="nextReviewBtn">Review next</button>
+      <button class="bar-btn hidden" id="undoBtn" title="Restore pre-fill form values">Undo fill</button>
+      <button class="bar-btn hidden" id="saveAnswersBtn">Save answers</button>
+      <button class="bar-btn bar-btn-accent hidden" id="logAppBtn">Log application</button>
+      <button class="bar-close" id="closeBtn" title="Dismiss">×</button>
+    </div>
+    <div class="modal-overlay hidden" id="confirmModal">
+      <div class="modal-header">
+        <span id="modalTitle">Review Answers to Save</span>
+        <button class="bar-close" id="closeModalBtn">×</button>
+      </div>
+      <div class="modal-body" id="modalList"></div>
+      <div class="modal-footer">
+        <button class="bar-btn" id="modalCancelBtn">Cancel</button>
+        <button class="bar-btn bar-btn-accent" id="modalSaveBtn">Confirm &amp; Save</button>
+      </div>
+    </div>
+  `;
+
+  shadow.appendChild(style);
+  shadow.appendChild(root);
+
+  const spinner = shadow.getElementById("spinner");
+  const statusMsg = shadow.getElementById("statusMsg");
+  const pillGroup = shadow.getElementById("pillGroup");
+  const rulePill = shadow.getElementById("rulePill");
+  const aiPill = shadow.getElementById("aiPill");
+  const manualPill = shadow.getElementById("manualPill");
+  const nextReviewBtn = shadow.getElementById("nextReviewBtn");
+  const undoBtn = shadow.getElementById("undoBtn");
+  const saveAnswersBtn = shadow.getElementById("saveAnswersBtn");
+  const logAppBtn = shadow.getElementById("logAppBtn");
+  const closeBtn = shadow.getElementById("closeBtn");
+
+  const confirmModal = shadow.getElementById("confirmModal");
+  const modalList = shadow.getElementById("modalList");
+  const closeModalBtn = shadow.getElementById("closeModalBtn");
+  const modalCancelBtn = shadow.getElementById("modalCancelBtn");
+  const modalSaveBtn = shadow.getElementById("modalSaveBtn");
+
+  let reviewIndex = 0;
+  let activeFields = [];
+  let pendingEntries = {};
+
+  closeBtn.addEventListener("click", () => host.remove());
+  closeModalBtn.addEventListener("click", () => confirmModal.classList.add("hidden"));
+  modalCancelBtn.addEventListener("click", () => confirmModal.classList.add("hidden"));
+
+  // Next manual review navigation
+  nextReviewBtn.addEventListener("click", () => {
+    const list = window._jobfillManualFields || [];
+    if (list.length === 0) {
+      statusMsg.textContent = "All manual review fields checked.";
+      nextReviewBtn.classList.add("hidden");
+      return;
+    }
+    const item = list[reviewIndex % list.length];
+    reviewIndex++;
+    if (item && item.el) {
+      item.el.scrollIntoView({ behavior: "smooth", block: "center" });
+      item.el.focus();
+      statusMsg.textContent = `Review: ${item.field.label || item.reason}`;
+    }
+  });
+
+  // Undo Fill button handler
+  undoBtn.addEventListener("click", () => {
+    const restored = jobfillUndoFill();
+    statusMsg.textContent = `Restored ${restored} field(s) to original values.`;
+    undoBtn.classList.add("hidden");
+    pillGroup.classList.add("hidden");
+  });
+
+  // Save Answers confirmation modal
+  saveAnswersBtn.addEventListener("click", () => {
+    pendingEntries = jobfillCollectUserInputs(activeFields);
+    const keys = Object.keys(pendingEntries);
+    if (keys.length === 0) {
+      statusMsg.textContent = "No new manual edits found to save.";
+      return;
+    }
+
+    modalList.innerHTML = keys
+      .map(
+        (q, idx) => `
+        <div class="entry-row">
+          <input type="checkbox" id="check_${idx}" data-q="${encodeURIComponent(q)}" checked />
+          <div>
+            <span class="entry-label">${escapeHtml(q)}</span>
+            <span class="entry-val">${escapeHtml(pendingEntries[q].answer)}</span>
+          </div>
+        </div>
+      `
+      )
+      .join("");
+
+    confirmModal.classList.remove("hidden");
+  });
+
+  modalSaveBtn.addEventListener("click", async () => {
+    const approved = {};
+    modalList.querySelectorAll("input[type='checkbox']:checked").forEach((chk) => {
+      const q = decodeURIComponent(chk.getAttribute("data-q"));
+      if (pendingEntries[q]) {
+        approved[q] = pendingEntries[q];
+      }
+    });
+
+    confirmModal.classList.add("hidden");
+    const count = Object.keys(approved).length;
+    if (count > 0) {
+      await jobfillSaveToMemory(approved);
+      statusMsg.textContent = `Saved ${count} answer(s) to memory!`;
+    }
+  });
+
+  // Log to Application Tracker
+  logAppBtn.addEventListener("click", async () => {
+    logAppBtn.disabled = true;
+    logAppBtn.textContent = "Logging…";
+    const appInfo = jobfillExtractAppInfo();
+    try {
+      await chrome.runtime.sendMessage({
+        action: "logApplication",
+        application: appInfo,
+      });
+      logAppBtn.textContent = "Logged ✓";
+    } catch (_) {
+      logAppBtn.textContent = "Log failed";
+    }
+    setTimeout(() => {
+      logAppBtn.disabled = false;
+      logAppBtn.textContent = "Log application";
+    }, 2500);
+  });
+
+  const controller = {
+    setStatus(text, type = "info") {
+      statusMsg.textContent = text;
+      if (type === "done" || type === "error" || type === "warn") {
+        spinner.classList.add("hidden");
+      } else {
+        spinner.classList.remove("hidden");
+      }
+    },
+
+    showSummary(counts, fields) {
+      activeFields = fields;
+      spinner.classList.add("hidden");
+      pillGroup.classList.remove("hidden");
+
+      rulePill.textContent = `${counts.rule} rule`;
+      aiPill.textContent = `${counts.ai} ai`;
+      manualPill.textContent = `${counts.manual} review`;
+
+      statusMsg.textContent = "Form filled. Review before submitting.";
+
+      if (counts.manual > 0) {
+        nextReviewBtn.classList.remove("hidden");
+      }
+      if (window._jobfillSnapshot.size > 0) {
+        undoBtn.classList.remove("hidden");
+      }
+      saveAnswersBtn.classList.remove("hidden");
+      logAppBtn.classList.remove("hidden");
+    },
+
+    promptPhotoAttach(field, photo) {
+      statusMsg.textContent = "Attach profile picture?";
+      const attachBtn = document.createElement("button");
+      attachBtn.className = "bar-btn bar-btn-accent";
+      attachBtn.textContent = "Attach Photo";
+      attachBtn.onclick = () => {
+        const ok = jobfillFillFile(field, photo);
+        if (ok) {
+          jobfillMarkFilled(field, "rule");
+          statusMsg.textContent = "Attached candidate profile picture ✓";
+        } else {
+          jobfillMarkManual(field, "Browser security blocked automatic photo upload.");
+          statusMsg.textContent = "Browser blocked upload — please attach manually.";
+        }
+        attachBtn.remove();
+      };
+      root.querySelector("#bar").insertBefore(attachBtn, closeBtn);
+    },
+
+    promptResumeAttach(field, resume) {
+      statusMsg.textContent = `Attach "${resume.role}" resume?`;
+      const attachBtn = document.createElement("button");
+      attachBtn.className = "bar-btn bar-btn-accent";
+      attachBtn.textContent = "Attach";
+      attachBtn.onclick = () => {
+        const ok = jobfillFillFile(field, resume);
+        if (ok) {
+          jobfillMarkFilled(field, "ai");
+          statusMsg.textContent = `Attached ${resume.role} resume.`;
+        } else {
+          jobfillMarkManual(field, "Browser security blocked automatic file upload.");
+          statusMsg.textContent = "Browser blocked upload — please attach manually.";
+        }
+        attachBtn.remove();
+      };
+      root.querySelector("#bar").insertBefore(attachBtn, closeBtn);
+    },
+
+    remove() {
+      host.remove();
+    },
+  };
+
+  _jobfillActiveBar = controller;
+  return controller;
+}
+
+// ---------- Restore / Undo Fill ----------
+
+function jobfillUndoFill() {
+  if (!window._jobfillSnapshot || window._jobfillSnapshot.size === 0) return 0;
+  let count = 0;
+
+  for (const [id, state] of window._jobfillSnapshot.entries()) {
+    const el = document.querySelector(`[data-jobfill-id="${id}"]`);
+    if (!el) continue;
+
+    if (state.type === "select") {
+      el.value = state.value;
+      el.selectedIndex = state.selectedIndex;
+    } else if (state.type === "check") {
+      el.checked = state.checked;
+    } else if (state.type === "contenteditable") {
+      el.textContent = state.text;
+    } else {
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      if (setter) setter.call(el, state.value);
+      else el.value = state.value;
+    }
+
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.style.removeProperty("outline");
+    el.removeAttribute("data-jobfill-filled");
+    el.removeAttribute("data-jobfill-manual");
+    count++;
+  }
+
+  window._jobfillSnapshot.clear();
+  return count;
+}
+
+// ---------- Memory Collection & Filtering ----------
+
+function jobfillCollectUserInputs(fields) {
+  const entries = {};
+  for (const field of fields) {
+    const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+    if (!el) continue;
+    if (field.matchType === "file") continue;
+
+    // Only collect fields the user actively touched/edited
+    const userEdited = el.getAttribute("data-jobfill-user-edited") === "true";
+    let val = "";
+    if (field.matchType === "select") {
+      const opt = el.options[el.selectedIndex];
+      val = opt ? opt.textContent.trim() : "";
+    } else if (field.matchType === "radio" || field.matchType === "checkbox") {
+      val = el.checked ? "yes" : "";
+    } else if (el.hasAttribute("contenteditable")) {
+      val = el.textContent.trim();
+    } else {
+      val = el.value.trim();
+    }
+
+    if (!val) continue;
+
+    const labelText = field.label || field.placeholder || field.name || "";
+    // Exclude passwords and sensitive security questions
+    if (jobfillIsSensitiveField(labelText)) continue;
+
+    if (userEdited || val.length > 3) {
+      const question = jobfillNormalizeQuestion(labelText);
+      if (question) {
+        entries[question] = {
+          answer: val,
+          fieldType: field.matchType,
+          lastUsed: new Date().toISOString(),
+          timesUsed: 1,
+          source: "user_input",
+        };
+      }
+    }
+  }
+  return entries;
+}
+
+function jobfillNormalizeQuestion(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[*:?!]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
+async function jobfillSaveToMemory(newEntries) {
+  const key = JOBFILL_DEFAULTS.STORAGE_KEYS.USER_MEMORY;
+  const { [key]: existingMemory } = await chrome.storage.local.get(key);
+  const memory = existingMemory || {};
+
+  for (const [q, data] of Object.entries(newEntries)) {
+    if (memory[q]) {
+      memory[q].answer = data.answer;
+      memory[q].lastUsed = data.lastUsed;
+      memory[q].timesUsed = (memory[q].timesUsed || 0) + 1;
+    } else {
+      memory[q] = data;
+    }
+  }
+
+  const entries = Object.entries(memory);
+  if (entries.length > JOBFILL_DEFAULTS.MAX_MEMORY_ENTRIES) {
+    entries.sort((a, b) => new Date(b[1].lastUsed) - new Date(a[1].lastUsed));
+    const trimmed = Object.fromEntries(entries.slice(0, JOBFILL_DEFAULTS.MAX_MEMORY_ENTRIES));
+    await chrome.storage.local.set({ [key]: trimmed });
+  } else {
+    await chrome.storage.local.set({ [key]: memory });
+  }
+}
+
+// ---------- Job Context & Application Detection ----------
 
 function jobfillDetectCaptcha() {
   const selectors = [
@@ -454,8 +1452,6 @@ function jobfillDetectCaptcha() {
   ];
   return selectors.some((sel) => document.querySelector(sel));
 }
-
-// ---------- best-effort job description extraction ----------
 
 function jobfillExtractJobContext() {
   const candidates = [
@@ -473,22 +1469,57 @@ function jobfillExtractJobContext() {
   return jobfillTruncate(document.body.innerText || "", 1500);
 }
 
+function jobfillExtractAppInfo() {
+  let company = "";
+  let role = "";
+
+  const title = document.title || "";
+  const parts = title.split(/[-–|—]/);
+  if (parts.length >= 2) {
+    role = parts[0].trim();
+    company = parts[1].trim();
+  } else {
+    role = title.trim();
+  }
+
+  // Look for company heading or meta tags
+  const ogCompany = document.querySelector("meta[property='og:site_name']")?.content;
+  if (ogCompany) company = ogCompany;
+
+  return {
+    company: company || "Company from " + location.hostname.replace(/^www\./, ""),
+    role: role || "Job Application",
+    jobUrl: location.href,
+    appliedDate: new Date().toISOString(),
+    status: "Applied",
+  };
+}
+
 function jobfillTruncate(str, max) {
   if (!str) return "";
   return str.length > max ? str.slice(0, max) + "…" : str;
 }
 
-// ---------- background messaging ----------
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ---------- Messaging Wrappers ----------
 
 function jobfillRequestFieldMapping(fields, profile) {
   return chrome.runtime.sendMessage({
     action: "mapFields",
-    fields: fields.map(({ id, label, placeholder, matchType, options }) => ({
+    fields: fields.map(({ id, label, placeholder, matchType, options, maxLength }) => ({
       id,
       label,
       placeholder,
       matchType,
       options,
+      maxLength,
     })),
     profile,
   }).then((res) => {
@@ -512,7 +1543,7 @@ function jobfillRequestWrittenAnswer(field, profile, jobContext) {
 function jobfillRequestResume(jobContext) {
   return chrome.runtime.sendMessage({
     action: "chooseResume",
-    jobContext
+    jobContext,
   }).then((res) => {
     if (res && res.error) throw new Error(res.error);
     return res && res.resumeData;
@@ -525,336 +1556,4 @@ async function jobfillAppendLog(entry) {
   const log = Array.isArray(existing) ? existing : [];
   log.unshift(entry);
   await chrome.storage.local.set({ [key]: log.slice(0, JOBFILL_DEFAULTS.MAX_LOG_ENTRIES) });
-}
-
-// ---------- on-page JobFill Floating Toolbar (Shadow DOM, isolated from page styles) ----------
-
-let _jobfillActiveBar = null;
-
-function jobfillCreateBadge() {
-  if (_jobfillActiveBar && _jobfillActiveBar.remove) {
-    _jobfillActiveBar.remove();
-  }
-
-  const host = document.createElement("div");
-  host.setAttribute("data-jobfill-toolbar", "true");
-  host.style.position = "fixed";
-  host.style.bottom = "16px";
-  host.style.right = "16px";
-  host.style.zIndex = "2147483647";
-  document.documentElement.appendChild(host);
-
-  const shadow = host.attachShadow({ mode: "open" });
-  const style = document.createElement("style");
-  style.textContent = `
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    
-    .bar {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
-      font-size: 12px;
-      line-height: 1.4;
-      background: #121215;
-      color: #f4f4f5;
-      border: 1px solid #27272a;
-      border-radius: 8px;
-      padding: 7px 12px;
-      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      animation: fadeIn 0.15s ease;
-    }
-
-    .bar-spinner {
-      width: 11px;
-      height: 11px;
-      border: 1.5px solid #3f3f46;
-      border-top-color: #f4f4f5;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      flex-shrink: 0;
-    }
-
-    .bar-title {
-      font-weight: 600;
-      color: #fff;
-    }
-
-    .bar-status {
-      color: #a1a1aa;
-    }
-
-    .bar-btn {
-      background: transparent;
-      border: 1px solid #27272a;
-      color: #f4f4f5;
-      font-size: 11.5px;
-      font-weight: 500;
-      padding: 3px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      white-space: nowrap;
-    }
-    .bar-btn:hover {
-      background: #1c1c20;
-      border-color: #3f3f46;
-    }
-
-    .bar-btn-accent {
-      background: #27272a;
-      border-color: #3f3f46;
-      color: #fff;
-    }
-    .bar-btn-accent:hover {
-      background: #3f3f46;
-    }
-
-    .bar-close {
-      background: none;
-      border: none;
-      color: #71717a;
-      font-size: 15px;
-      cursor: pointer;
-      padding: 0 2px;
-      line-height: 1;
-    }
-    .bar-close:hover {
-      color: #f4f4f5;
-    }
-
-    .hidden {
-      display: none !important;
-    }
-
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-  `;
-
-  const root = document.createElement("div");
-  root.innerHTML = `
-    <div class="bar" id="bar">
-      <span class="bar-spinner" id="spinner"></span>
-      <span class="bar-status" id="statusMsg">Scanning form fields…</span>
-      <button class="bar-btn bar-btn-accent hidden" id="nextBtn">Next field →</button>
-      <button class="bar-btn hidden" id="saveBtn">Save answers</button>
-      <button class="bar-close" id="closeBtn" title="Dismiss">×</button>
-    </div>
-  `;
-
-  shadow.appendChild(style);
-  shadow.appendChild(root);
-
-  const spinner = shadow.getElementById("spinner");
-  const statusMsg = shadow.getElementById("statusMsg");
-  const nextBtn = shadow.getElementById("nextBtn");
-  const saveBtn = shadow.getElementById("saveBtn");
-  const closeBtn = shadow.getElementById("closeBtn");
-
-  let currentFields = [];
-  let manualIndex = 0;
-
-  closeBtn.addEventListener("click", () => {
-    host.remove();
-  });
-
-  nextBtn.addEventListener("click", () => {
-    const list = window._jobfillManualFields || [];
-    if (list.length === 0) {
-      statusMsg.textContent = "All review fields complete";
-      nextBtn.classList.add("hidden");
-      return;
-    }
-
-    const item = list[manualIndex % list.length];
-    manualIndex++;
-
-    if (item && item.el) {
-      item.el.scrollIntoView({ behavior: "smooth", block: "center" });
-      item.el.focus();
-      statusMsg.textContent = `Review: ${item.field.label || "Manual input"}`;
-    }
-  });
-
-  saveBtn.addEventListener("click", async () => {
-    saveBtn.disabled = true;
-    saveBtn.textContent = "Saving…";
-
-    try {
-      await jobfillCaptureUserInputs(currentFields);
-      saveBtn.textContent = "Saved";
-      setTimeout(() => {
-        saveBtn.disabled = false;
-        saveBtn.textContent = "Save answers";
-      }, 2000);
-    } catch (_) {
-      saveBtn.disabled = false;
-      saveBtn.textContent = "Save answers";
-    }
-  });
-
-  const controller = {
-    setStatus(text, kind, counts, fields) {
-      statusMsg.textContent = text;
-
-      if (kind === "done") {
-        spinner.classList.add("hidden");
-        saveBtn.classList.remove("hidden");
-
-        if (counts) {
-          statusMsg.textContent = `${counts.rule} local · ${counts.ai} AI · ${counts.manual} manual`;
-
-          if (counts.manual > 0) {
-            nextBtn.classList.remove("hidden");
-          }
-        }
-
-        if (fields) {
-          currentFields = fields;
-        }
-      } else {
-        spinner.classList.remove("hidden");
-      }
-    },
-
-    remove() {
-      host.remove();
-    }
-  };
-
-  _jobfillActiveBar = controller;
-  return controller;
-}
-
-function jobfillInjectLearningButton(fields) {
-  // Gracefully handled inside floating bar
-}
-
-/**
- * Capture all user inputs from the form and store new/updated answers in memory.
- * This implements the "observation loop" - detecting what the user filled manually.
- */
-async function jobfillCaptureUserInputs(fields) {
-  const memoryEntries = {};
-  let capturedCount = 0;
-
-  for (const field of fields) {
-    const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
-    if (!el) continue;
-
-    // Skip file inputs - can't learn from these
-    if (field.matchType === "file") continue;
-
-    let currentValue = null;
-
-    // Extract current value based on field type
-    if (field.matchType === "select") {
-      const selectedOption = el.options[el.selectedIndex];
-      currentValue = selectedOption ? selectedOption.textContent.trim() : null;
-    } else if (field.matchType === "radio") {
-      currentValue = el.checked ? "yes" : null;
-    } else if (field.matchType === "checkbox") {
-      currentValue = el.checked ? "yes" : null;
-    } else if (el.hasAttribute("contenteditable")) {
-      currentValue = el.textContent.trim();
-    } else {
-      currentValue = el.value.trim();
-    }
-
-    // Only capture if there's actual content
-    if (currentValue && currentValue.length > 0) {
-      // Normalize the question/label
-      const question = jobfillNormalizeQuestion(field.label || field.placeholder || field.name);
-      
-      if (question) {
-        memoryEntries[question] = {
-          answer: currentValue,
-          fieldType: field.matchType,
-          lastUsed: new Date().toISOString(),
-          timesUsed: 1, // Will be incremented if already exists
-          source: "user_input"
-        };
-        capturedCount++;
-      }
-    }
-  }
-
-  if (capturedCount > 0) {
-    await jobfillSaveToMemory(memoryEntries);
-    console.log(`JobFill: Learned ${capturedCount} new answers from your input.`);
-  }
-
-  // Send notification to background script
-  chrome.runtime.sendMessage({
-    action: "memoryUpdated",
-    count: capturedCount
-  });
-}
-
-/**
- * Normalize question text for better matching in the future.
- * Removes extra whitespace, standardizes casing, removes special characters.
- */
-function jobfillNormalizeQuestion(text) {
-  if (!text) return "";
-  return text
-    .toLowerCase()
-    .replace(/[*:?!]/g, "") // Remove special punctuation
-    .replace(/\s+/g, " ") // Normalize whitespace
-    .trim()
-    .slice(0, 300); // Limit length
-}
-
-/**
- * Save captured answers to the user memory storage.
- * Merges with existing memory, updating counts and timestamps.
- */
-async function jobfillSaveToMemory(newEntries) {
-  const key = JOBFILL_DEFAULTS.STORAGE_KEYS.USER_MEMORY;
-  const { [key]: existingMemory } = await chrome.storage.local.get(key);
-  const memory = existingMemory || {};
-
-  // Merge new entries with existing memory
-  for (const [question, data] of Object.entries(newEntries)) {
-    if (memory[question]) {
-      // Update existing entry
-      memory[question].answer = data.answer; // Overwrite with latest answer
-      memory[question].lastUsed = data.lastUsed;
-      memory[question].timesUsed = (memory[question].timesUsed || 0) + 1;
-    } else {
-      // Add new entry
-      memory[question] = data;
-    }
-  }
-
-  // Enforce maximum entries limit (keep most recently used)
-  const entries = Object.entries(memory);
-  if (entries.length > JOBFILL_DEFAULTS.MAX_MEMORY_ENTRIES) {
-    // Sort by lastUsed descending and keep top N
-    const sorted = entries.sort((a, b) => 
-      new Date(b[1].lastUsed) - new Date(a[1].lastUsed)
-    );
-    const trimmed = Object.fromEntries(
-      sorted.slice(0, JOBFILL_DEFAULTS.MAX_MEMORY_ENTRIES)
-    );
-    await chrome.storage.local.set({ [key]: trimmed });
-  } else {
-    await chrome.storage.local.set({ [key]: memory });
-  }
-}
-
-/**
- * Retrieve user memory for injection into AI prompts.
- */
-async function jobfillGetMemory() {
-  const key = JOBFILL_DEFAULTS.STORAGE_KEYS.USER_MEMORY;
-  const { [key]: memory } = await chrome.storage.local.get(key);
-  return memory || {};
 }
