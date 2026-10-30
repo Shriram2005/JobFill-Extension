@@ -56,6 +56,14 @@ function setupListeners() {
   exportBtn.addEventListener("click", handleExportLog);
   clearLogBtn.addEventListener("click", handleClearLog);
 
+  const openSandboxLink = document.getElementById("openSandboxLink");
+  if (openSandboxLink) {
+    openSandboxLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: chrome.runtime.getURL("sandbox.html") });
+    });
+  }
+
   popupOverwriteToggle.addEventListener("change", async () => {
     const key = (typeof JOBFILL_DEFAULTS !== "undefined" && JOBFILL_DEFAULTS.STORAGE_KEYS?.OVERWRITE_EXISTING) || "jobfill_overwrite_existing";
     await chrome.storage.local.set({ [key]: popupOverwriteToggle.checked });
@@ -147,15 +155,14 @@ async function checkReadiness() {
 
   let allReady = true;
 
-  // 1. API Key
+  // 1. API Key (Optional — local rules work 100% free without key)
   const hasKey = Boolean(stored[K.API_KEY] && stored[K.API_KEY].trim().length > 0);
   if (hasKey) {
-    keyVal.textContent = "Configured";
+    keyVal.textContent = "AI Enabled";
     keyBullet.className = "tag-bullet bullet-ok";
   } else {
-    keyVal.textContent = "Missing";
-    keyBullet.className = "tag-bullet bullet-err";
-    allReady = false;
+    keyVal.textContent = "Local Only";
+    keyBullet.className = "tag-bullet bullet-warn";
   }
 
   // 2. Profile
@@ -166,8 +173,9 @@ async function checkReadiness() {
     profileVal.textContent = candidateName.split(" ")[0] || "Active";
     profileBullet.className = "tag-bullet bullet-ok";
   } else {
-    profileVal.textContent = "Configured";
-    profileBullet.className = "tag-bullet bullet-ok";
+    profileVal.textContent = "Needs Setup";
+    profileBullet.className = "tag-bullet bullet-err";
+    allReady = false;
   }
 
   // 3. Resumes
@@ -211,7 +219,7 @@ async function handleFillClick() {
     }
 
     await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: tab.id, allFrames: true },
       files: ["constants.js", "rules.js", "content.js"],
     });
 

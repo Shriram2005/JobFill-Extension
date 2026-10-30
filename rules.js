@@ -55,11 +55,11 @@ function jobfillBuildRules(profile) {
   return [
     // Names
     {
-      patterns: [/first\s*name|given\s*name|^fname$/i],
+      patterns: [/first\s*name|given\s*name|^fname$|legalnamesection[\s_]*firstname/i],
       get: () => firstName,
     },
     {
-      patterns: [/last\s*name|family\s*name|surname|^lname$/i],
+      patterns: [/last\s*name|family\s*name|surname|^lname$|legalnamesection[\s_]*lastname/i],
       get: () => lastName,
     },
     {
@@ -101,23 +101,23 @@ function jobfillBuildRules(profile) {
 
     // Location & Address
     {
-      patterns: [/^city$|current\s*city/i],
+      patterns: [/^city$|current\s*city|addresssection[\s_]*city/i],
       get: () => city,
     },
     {
-      patterns: [/^state$|^province$|^region$|state\s*\/\s*province/i],
+      patterns: [/^state$|^province$|^region$|state\s*\/\s*province|addresssection[\s_]*countryregion/i],
       get: () => state,
     },
     {
-      patterns: [/^country$|country\s*of\s*residence/i],
+      patterns: [/^country$|country\s*of\s*residence|addresssection[\s_]*country/i],
       get: () => country,
     },
     {
-      patterns: [/zip(\s*code)?|postal(\s*code)?|pincode|postcode/i],
+      patterns: [/zip(\s*code)?|postal(\s*code)?|pincode|postcode|addresssection[\s_]*postalcode/i],
       get: () => personal.zip || personal.postal_code || "",
     },
     {
-      patterns: [/^address(\s*line\s*1)?|street\s*address|residential\s*address/i],
+      patterns: [/^address(\s*line\s*1)?|street\s*address|residential\s*address|addresssection[\s_]*addressline1/i],
       get: () => personal.address || personal.location,
     },
     {
@@ -231,13 +231,40 @@ function jobfillBuildRules(profile) {
       patterns: [/disability\s*status|physical\s*or\s*mental\s*impairment|individual\s*with\s*a\s*disability/i],
       get: () => personal.disability_status || "No, I do not have a disability",
     },
+    // Specific Hispanic / Latino Yes-No Question (Workday / Taleo EEO)
     {
-      patterns: [/race|ethnicity|hispanic|latino|demographic/i],
+      patterns: [/hispanic\s*(or|\/)\s*latino|are\s*you\s*hispanic/i],
+      get: () => (/hispanic|latino/i.test(personal.race_ethnicity || "") ? "Yes" : "No"),
+    },
+    // General Race / Ethnicity Selection
+    {
+      patterns: [/race|ethnicity|demographic/i],
       get: () => personal.race_ethnicity || "Asian",
     },
     {
       patterns: [/how\s*did\s*you\s*hear|source|referral\s*source|found\s*out\s*about\s*this/i],
       get: () => personal.job_source || "LinkedIn",
+    },
+    // Common ATS Screening Questions
+    {
+      patterns: [/previously\s*(worked|employed)|prior\s*employment\s*with|former\s*employee/i],
+      get: () => "No",
+    },
+    {
+      patterns: [/relatives?.*(employed|working)|family\s*members?.*(employed|working)|relative.*employed/i],
+      get: () => "No",
+    },
+    {
+      patterns: [/non-?compete|non-?solicitation|restrictive\s*covenant/i],
+      get: () => "No",
+    },
+    {
+      patterns: [/background\s*check|drug\s*(test|screen)|screening\s*consent/i],
+      get: () => "Yes",
+    },
+    {
+      patterns: [/felony|criminal\s*conviction|convicted\s*of\s*a\s*crime/i],
+      get: () => "No",
     },
     {
       patterns: [/country\s*code|dial(ing)?\s*code|phone\s*code/i],

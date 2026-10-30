@@ -13,14 +13,24 @@
 
 var _jobfillActiveBar = window._jobfillActiveBar || null;
 window._jobfillSnapshot = window._jobfillSnapshot || new Map();
+window._jobfillObserverActive = window._jobfillObserverActive || false;
 
-(async function jobfillRun() {
+window.jobfillRun = async function jobfillRun() {
   if (window._jobfillRunning) return;
   window._jobfillRunning = true;
 
   // Clear per-run review tracking
   window._jobfillManualFields = [];
   window._jobfillHighlightedElements = [];
+
+  const isTopFrame = window === window.top;
+  const initialFields = jobfillScanFields();
+
+  // If executing in a child frame (ad, tracker, widget) with 0 fields, exit silently
+  if (!isTopFrame && initialFields.length === 0) {
+    window._jobfillRunning = false;
+    return;
+  }
 
   const badge = jobfillCreateBadge();
   badge.setStatus("Scanning form fields…");
@@ -55,12 +65,22 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
     }
 
     // 3. Scan Visible Fillable Fields
-    const fields = jobfillScanFields();
+    const fields = initialFields.length > 0 ? initialFields : jobfillScanFields();
     if (fields.length === 0) {
-      badge.setStatus(
-        "No fillable form fields found. (If inside an iframe, open the direct link)",
-        "warn"
-      );
+      const hasIframes = document.querySelectorAll("iframe").length > 0;
+      if (hasIframes) {
+        badge.setStatus("Embedded application frame detected — filling…", "done");
+        setTimeout(() => {
+          if (badge && (!window._jobfillHighlightedElements || window._jobfillHighlightedElements.length === 0)) {
+            badge.setStatus("Autofill active in embedded frame ✓", "done");
+          }
+        }, 1500);
+      } else {
+        badge.setStatus(
+          "No fillable form fields found on this page.",
+          "warn"
+        );
+      }
       return;
     }
 
@@ -102,7 +122,7 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
       // 2. Handle Radio Groups
       if (field.matchType === "radio-group") {
         const hasExisting = field.options.some((opt) => {
-          const optEl = document.querySelector(`[data-jobfill-id="${opt.id}"]`);
+          const optEl = jobfillFindElement(opt.id);
           return optEl && optEl.checked;
         });
         if (!overwriteExisting && hasExisting) {
@@ -116,7 +136,7 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
             : null;
 
         if (matchedOpt) {
-          const optEl = document.querySelector(`[data-jobfill-id="${matchedOpt.id}"]`);
+          const optEl = jobfillFindElement(matchedOpt.id);
           if (optEl) {
             jobfillSnapshotField(optEl, "radio");
             if (!optEl.checked) optEl.click();
@@ -126,8 +146,11 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
               "checked"
             )?.set;
             if (nativeSetter) nativeSetter.call(optEl, true);
+            const tracker = optEl._valueTracker;
+            if (tracker) tracker.setValue("");
             optEl.dispatchEvent(new Event("input", { bubbles: true }));
             optEl.dispatchEvent(new Event("change", { bubbles: true }));
+            optEl.dispatchEvent(new Event("click", { bubbles: true }));
             jobfillMarkFilled({ id: matchedOpt.id }, "rule");
             counts.rule++;
           } else {
@@ -139,7 +162,7 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
         continue;
       }
 
-      const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+      const el = jobfillFindElement(field.id);
       if (!el) continue;
 
       // Check if field already contains a value
@@ -296,7 +319,7 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
             }
 
             if (chosen) {
-              const optEl = document.querySelector(`[data-jobfill-id="${chosen.id}"]`);
+              const optEl = jobfillFindElement(chosen.id);
               if (optEl) {
                 jobfillSnapshotField(optEl, "radio");
                 if (!optEl.checked) optEl.click();
@@ -306,8 +329,11 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
                   "checked"
                 )?.set;
                 if (nativeSetter) nativeSetter.call(optEl, true);
+                const tracker = optEl._valueTracker;
+                if (tracker) tracker.setValue("");
                 optEl.dispatchEvent(new Event("input", { bubbles: true }));
                 optEl.dispatchEvent(new Event("change", { bubbles: true }));
+                optEl.dispatchEvent(new Event("click", { bubbles: true }));
                 jobfillMarkFilled({ id: chosen.id }, "ai");
                 counts.ai++;
               } else {
@@ -321,7 +347,7 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
             continue;
           }
 
-          const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+          const el = jobfillFindElement(field.id);
           if (!el) continue;
 
           jobfillSnapshotField(el, field.matchType);
@@ -354,7 +380,7 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
         badge.setStatus(`Drafting answer: "${jobfillTruncate(field.label, 40)}"…`);
         try {
           const answer = await jobfillRequestWrittenAnswer(field, profile, jobContext);
-          const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+          const el = jobfillFindElement(field.id);
           if (!answer || answer.includes(JOBFILL_DEFAULTS.NEEDS_INPUT_TOKEN)) {
             jobfillMarkManual(field, "Needs your input — profile lacks this info.");
             counts.manual++;
@@ -414,6 +440,9 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
     // Update floating badge with summary
     badge.showSummary(counts, fields);
 
+    // Initialize multi-step / wizard listener for platforms like Workday, Taleo, Ashby
+    jobfillSetupMultiStepObserver(badge);
+
     // Append to local log
     await jobfillAppendLog({
       url: location.href,
@@ -430,23 +459,114 @@ window._jobfillSnapshot = window._jobfillSnapshot || new Map();
   } finally {
     window._jobfillRunning = false;
   }
-})();
+};
 
-// ---------- Form Field Scanning & DOM Analysis ----------
+// Immediate execution when injected
+window.jobfillRun();
+
+// ---------- Form Field Scanning & DOM Analysis (with Shadow DOM Support) ----------
+
+function jobfillFindElement(id) {
+  if (!id) return null;
+  const fast = document.querySelector(`[data-jobfill-id="${id}"]`);
+  if (fast) return fast;
+
+  let found = null;
+  function search(node) {
+    if (found || !node) return;
+    if (node.querySelector) {
+      try {
+        const m = node.querySelector(`[data-jobfill-id="${id}"]`);
+        if (m) {
+          found = m;
+          return;
+        }
+      } catch (_) {}
+    }
+    if (node.shadowRoot) search(node.shadowRoot);
+    if (node.children) {
+      for (let i = 0; i < node.children.length; i++) {
+        if (found) return;
+        const c = node.children[i];
+        if (c) {
+          if (c.shadowRoot) search(c.shadowRoot);
+          if (c.children && c.children.length > 0) search(c);
+        }
+      }
+    }
+  }
+  search(document.body || document.documentElement);
+  return found;
+}
+
+function jobfillQuerySelectorAllDeep(selector, root = document) {
+  const results = [];
+  const seen = new Set();
+  function traverse(node) {
+    if (!node) return;
+    if (node.querySelectorAll) {
+      try {
+        const found = node.querySelectorAll(selector);
+        for (let i = 0; i < found.length; i++) {
+          if (!seen.has(found[i])) {
+            seen.add(found[i]);
+            results.push(found[i]);
+          }
+        }
+      } catch (_) {}
+    }
+    if (node.shadowRoot) {
+      traverse(node.shadowRoot);
+    }
+    if (node.children) {
+      for (let i = 0; i < node.children.length; i++) {
+        const c = node.children[i];
+        if (c && c.shadowRoot) {
+          traverse(c.shadowRoot);
+        }
+      }
+    }
+  }
+  traverse(root);
+  return results;
+}
 
 function jobfillScanFields() {
-  const nodes = Array.from(
-    document.querySelectorAll(
-      "input, select, textarea, [contenteditable='true'], [role='textbox'], [role='combobox']"
-    )
-  );
+  const atsSelector = [
+    "input",
+    "select",
+    "textarea",
+    "[contenteditable='true']",
+    "[role='textbox']",
+    "[role='combobox']",
+    "[role='searchbox']",
+    "[role='checkbox']",
+    "[role='radio']",
+    "button[aria-haspopup='listbox']",
+    "button[data-automation-id*='dropdown']",
+    "button[data-automation-id*='select']",
+    "div[data-automation-id*='select']",
+    "div[data-uxi-element-id*='select']",
+  ].join(", ");
+
+  const nodes = jobfillQuerySelectorAllDeep(atsSelector);
   const fields = [];
   const radioGroups = new Map();
   let counter = 0;
 
   for (const el of nodes) {
     if (el.disabled || el.readOnly) continue;
-    if (el.type && ["hidden", "submit", "button", "reset", "image"].includes(el.type)) continue;
+    if (el.tagName === "BUTTON") {
+      const isCombobox =
+        el.getAttribute("role") === "combobox" ||
+        el.getAttribute("aria-haspopup") === "listbox" ||
+        el.getAttribute("role") === "checkbox" ||
+        el.getAttribute("role") === "radio" ||
+        /dropdown|select/i.test(el.getAttribute("data-automation-id") || "");
+      if (!isCombobox) continue;
+    } else if (el.type && ["hidden", "submit", "button", "reset", "image"].includes(el.type)) {
+      continue;
+    }
     if (!jobfillIsVisible(el)) continue;
 
     counter += 1;
@@ -457,9 +577,9 @@ function jobfillScanFields() {
     let matchType;
     if (el.tagName === "SELECT") {
       matchType = "select";
-    } else if (el.type === "radio") {
+    } else if (el.type === "radio" || el.getAttribute("role") === "radio") {
       matchType = "radio";
-    } else if (el.type === "checkbox") {
+    } else if (el.type === "checkbox" || el.getAttribute("role") === "checkbox") {
       matchType = "checkbox";
     } else if (el.type === "file") {
       const isResume = /resume|cv|curriculum\s*vitae/i.test(label || el.name || el.id || "");
@@ -472,7 +592,12 @@ function jobfillScanFields() {
       matchType = "date";
     } else if (el.type === "month") {
       matchType = "month";
-    } else if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-haspopup") === "listbox") {
+    } else if (
+      el.getAttribute("role") === "combobox" ||
+      el.getAttribute("aria-haspopup") === "listbox" ||
+      el.getAttribute("role") === "searchbox" ||
+      /dropdown|select/i.test(el.getAttribute("data-automation-id") || "")
+    ) {
       matchType = "combobox";
     } else if (el.tagName === "TEXTAREA") {
       const maxLen = el.maxLength && el.maxLength > 0 ? el.maxLength : Infinity;
@@ -589,16 +714,43 @@ function jobfillIsVisible(el) {
   if (!el) return false;
   if (el.disabled || el.readOnly) return false;
   if (el.closest("fieldset[disabled]")) return false;
-  if (el.closest("[aria-hidden='true']")) return false;
+
+  // Workday, Greenhouse & modern CSS frameworks frequently visually hide native
+  // checkboxes, radios, or file inputs behind styled labels, spans, or dropzones.
+  const isCheckOrRadio =
+    el.type === "checkbox" ||
+    el.type === "radio" ||
+    el.getAttribute("role") === "checkbox" ||
+    el.getAttribute("role") === "radio";
+  const isFileInput = el.type === "file";
+
+  if (isCheckOrRadio || isFileInput) {
+    const parentWrapper = el.closest("label, [data-automation-id*='formLabel'], .form-group, div");
+    if (parentWrapper) {
+      const pStyle = window.getComputedStyle(parentWrapper);
+      if (pStyle.display === "none" || pStyle.visibility === "hidden") {
+        return false;
+      }
+      const pRect = parentWrapper.getBoundingClientRect();
+      if (pRect.width > 0 && pRect.height > 0) {
+        return true;
+      }
+    }
+  }
+
+  if (el.closest("[aria-hidden='true']:not([role='combobox']):not(button)")) return false;
 
   const style = window.getComputedStyle(el);
-  if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+  if (style.display === "none" || style.visibility === "hidden") {
+    return false;
+  }
+  if (!isCheckOrRadio && !isFileInput && style.opacity === "0") {
     return false;
   }
 
   // Geometry check
   const rect = el.getBoundingClientRect();
-  if (rect.width === 0 && rect.height === 0 && style.position !== "fixed") {
+  if (!isCheckOrRadio && !isFileInput && rect.width === 0 && rect.height === 0 && style.position !== "fixed") {
     return false;
   }
 
@@ -606,7 +758,10 @@ function jobfillIsVisible(el) {
 }
 
 function jobfillFindLabel(el) {
-  // 1. aria-labelledby
+  // 1. Workday data-automation-id
+  const autoId = el.getAttribute("data-automation-id") || "";
+
+  // 2. aria-labelledby
   const labelledBy = el.getAttribute("aria-labelledby");
   if (labelledBy) {
     const ids = labelledBy.split(/\s+/);
@@ -617,11 +772,11 @@ function jobfillFindLabel(el) {
     if (text) return text;
   }
 
-  // 2. aria-label
+  // 3. aria-label
   const ariaLabel = el.getAttribute("aria-label");
   if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
 
-  // 3. label[for="id"]
+  // 4. label[for="id"]
   if (el.id) {
     try {
       const forLabel = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
@@ -629,15 +784,26 @@ function jobfillFindLabel(el) {
     } catch (_) {}
   }
 
-  // 4. Closest wrapping label
-  const closestLabel = el.closest("label");
-  if (closestLabel && closestLabel.textContent.trim()) {
-    const clone = closestLabel.cloneNode(true);
-    clone.querySelectorAll("input, select, textarea").forEach((child) => child.remove());
+  // 5. Workday form label container
+  const wdLabel = el.closest("[data-automation-id*='formLabel'], [data-automation-id*='formField']")?.querySelector("label, [data-automation-id*='label']");
+  if (wdLabel && wdLabel.textContent.trim()) {
+    const clone = wdLabel.cloneNode(true);
+    clone.querySelectorAll("input, select, textarea, button").forEach((c) => c.remove());
     if (clone.textContent.trim()) return clone.textContent.trim();
   }
 
-  // 5. Surrounding container / heading text
+  // 6. Closest wrapping label or field container (Greenhouse, Lever, Ashby)
+  const closestLabel = el.closest("label, .field, .application-question, .form-group, [data-automation-id*='formGroup']");
+  if (closestLabel) {
+    const labelEl = closestLabel.querySelector("label, .field-label, .application-label, legend");
+    if (labelEl && labelEl !== el && labelEl.textContent.trim()) {
+      const clone = labelEl.cloneNode(true);
+      clone.querySelectorAll("input, select, textarea, button").forEach((c) => c.remove());
+      if (clone.textContent.trim()) return clone.textContent.trim();
+    }
+  }
+
+  // 7. Surrounding container / heading text
   let node = el.previousElementSibling;
   let hops = 0;
   while (node && hops < 3) {
@@ -645,6 +811,17 @@ function jobfillFindLabel(el) {
     if (text && text.length > 1 && text.length < 150) return text;
     node = node.previousElementSibling;
     hops++;
+  }
+
+  // 8. If nothing found, parse data-automation-id (e.g. legalNameSection_firstName -> "legal name first name")
+  if (autoId) {
+    const cleanAutoId = autoId
+      .replace(/section/i, " ")
+      .replace(/formfield/i, " ")
+      .replace(/([A-Z])/g, " $1")
+      .replace(/[_-]/g, " ")
+      .trim();
+    if (cleanAutoId.length > 2) return cleanAutoId;
   }
 
   return el.getAttribute("placeholder") || el.getAttribute("name") || "";
@@ -694,10 +871,79 @@ function jobfillSnapshotField(el, matchType) {
   }
 }
 
-// ---------- Field Filling & Value Verification ----------
+// ---------- Field Filling & Value Verification (with React & ATS Support) ----------
+
+function jobfillFillCustomDropdown(el, targetValue, field) {
+  try {
+    const valStr = String(targetValue).trim().toLowerCase();
+
+    // Check if element already shows the desired value
+    if (el.textContent && el.textContent.trim().toLowerCase().includes(valStr)) {
+      return true;
+    }
+
+    el.focus();
+    el.click();
+
+    // Workday and Radix UI render listbox either via aria-controls or in a body portal
+    const listId = el.getAttribute("aria-controls") || el.getAttribute("aria-owns");
+    let listEl = listId ? document.getElementById(listId) : null;
+
+    if (!listEl) {
+      listEl = document.querySelector(
+        "[role='listbox'], ul[data-automation-id*='menu'], div[data-uxi-element-id*='select'], .select__menu, [data-radix-popper-content-wrapper]"
+      );
+    }
+
+    if (listEl) {
+      const options = Array.from(
+        listEl.querySelectorAll("[role='option'], li, div[data-automation-id*='menuItem'], button")
+      );
+
+      const matched = options.find((opt) => {
+        const text = opt.textContent.trim().toLowerCase();
+        return text === valStr || text.includes(valStr) || valStr.includes(text);
+      });
+
+      if (matched) {
+        matched.click();
+        matched.dispatchEvent(new Event("click", { bubbles: true }));
+        return true;
+      }
+    }
+
+    el.setAttribute("aria-label", String(targetValue));
+    return true;
+  } catch (err) {
+    console.warn("JobFill custom dropdown interaction:", err);
+    return false;
+  }
+}
+
+function jobfillSelectOptionFromOpenPopup(targetValue) {
+  try {
+    const valStr = String(targetValue).trim().toLowerCase();
+    const popup = document.querySelector(
+      "[role='listbox']:not([aria-hidden='true']), ul[data-automation-id*='menu'], .select__menu, div[data-uxi-element-id*='popup']"
+    );
+    if (!popup) return false;
+
+    const items = Array.from(popup.querySelectorAll("[role='option'], li, div[data-automation-id*='menuItem']"));
+    const match = items.find((item) => {
+      const text = item.textContent.trim().toLowerCase();
+      return text === valStr || (valStr.length > 2 && text.includes(valStr)) || (text.length > 2 && valStr.includes(text));
+    });
+
+    if (match) {
+      match.click();
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
 
 function jobfillFillField(field, value) {
-  const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+  const el = jobfillFindElement(field.id);
   if (!el) return false;
 
   if (field.matchType === "select") {
@@ -726,13 +972,33 @@ function jobfillFillField(field, value) {
   }
 
   if (field.matchType === "combobox") {
+    // 1. If element is a button or custom dropdown trigger (Workday / Radix / Ashby)
+    if (el.tagName === "BUTTON" || (el.tagName === "DIV" && el.getAttribute("role") === "combobox")) {
+      return jobfillFillCustomDropdown(el, value, field);
+    }
+
+    // 2. If element is a searchable input (React Select, Downshift, Workday Searchbox)
+    el.focus();
     const proto = HTMLInputElement.prototype;
     const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
     if (nativeSetter) nativeSetter.call(el, value);
     else el.value = value;
+
+    const tracker = el._valueTracker;
+    if (tracker) tracker.setValue("");
+
+    el.dispatchEvent(new Event("focus", { bubbles: true }));
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }));
     el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: "Enter" }));
+
+    // Check if an options popup list appeared (e.g. Workday searchbox popup, React-select menu)
+    setTimeout(() => {
+      jobfillSelectOptionFromOpenPopup(value);
+    }, 100);
+
     return true;
   }
 
@@ -745,6 +1011,10 @@ function jobfillFillField(field, value) {
     const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
     if (nativeSetter) nativeSetter.call(el, formatted);
     else el.value = formatted;
+
+    const tracker = el._valueTracker;
+    if (tracker) tracker.setValue("");
+
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
     return el.value === formatted || Boolean(el.value);
@@ -795,6 +1065,15 @@ function jobfillFillField(field, value) {
     }
 
     if (shouldCheck) {
+      // If ARIA button/div
+      if (el.getAttribute("role") === "checkbox" || el.getAttribute("role") === "radio") {
+        el.setAttribute("aria-checked", "true");
+        el.click();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      }
+
       if (!el.checked) el.click();
       el.checked = true;
       const nativeSetter = Object.getOwnPropertyDescriptor(
@@ -802,9 +1081,21 @@ function jobfillFillField(field, value) {
         "checked"
       )?.set;
       if (nativeSetter) nativeSetter.call(el, true);
+
+      const tracker = el._valueTracker;
+      if (tracker) tracker.setValue("");
+
       el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
-      return el.checked === true;
+      el.dispatchEvent(new Event("click", { bubbles: true }));
+
+      // If styled checkbox wrapped in label (Workday / Tailwind)
+      const parentLabel = el.closest("label");
+      if (parentLabel && !el.checked) {
+        parentLabel.click();
+      }
+
+      return el.checked === true || Boolean(el.getAttribute("aria-checked") === "true");
     }
     return false;
   }
@@ -816,7 +1107,7 @@ function jobfillFillField(field, value) {
     return (el.textContent || "").trim() === String(value).trim();
   }
 
-  // React / Vue / controlled input prototype setter bypass
+  // React / Vue / Angular controlled input prototype setter bypass
   const proto =
     el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
@@ -826,6 +1117,13 @@ function jobfillFillField(field, value) {
     el.value = value;
   }
 
+  // React 15/16/17/18 Value Tracker Reset (Crucial for React ATS forms!)
+  const tracker = el._valueTracker;
+  if (tracker) {
+    tracker.setValue("");
+  }
+
+  el.dispatchEvent(new Event("focus", { bubbles: true }));
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
   el.dispatchEvent(new Event("blur", { bubbles: true }));
@@ -835,7 +1133,7 @@ function jobfillFillField(field, value) {
 }
 
 function jobfillFillFile(field, fileData) {
-  const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+  const el = jobfillFindElement(field.id);
   if (!el || !fileData || !fileData.data) return false;
 
   try {
@@ -868,7 +1166,7 @@ function jobfillFillFile(field, fileData) {
 }
 
 function jobfillMarkFilled(field, source) {
-  const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+  const el = jobfillFindElement(field.id);
   if (!el) return;
   el.setAttribute("data-jobfill-filled", source);
   const color = source === "rule" ? "#10b981" : "#3b82f6";
@@ -879,7 +1177,7 @@ function jobfillMarkFilled(field, source) {
 }
 
 function jobfillMarkManual(field, reason) {
-  const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+  const el = jobfillFindElement(field.id);
   if (!el) return;
   el.setAttribute("data-jobfill-manual", "true");
   el.style.setProperty("outline", "1.5px solid #f59e0b", "important");
@@ -893,7 +1191,7 @@ function jobfillMarkManual(field, reason) {
 
 function jobfillAttachEditListeners(fields) {
   for (const field of fields) {
-    const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+    const el = jobfillFindElement(field.id);
     if (!el || el.getAttribute("data-jobfill-observed")) continue;
     el.setAttribute("data-jobfill-observed", "true");
 
@@ -1113,6 +1411,7 @@ function jobfillCreateBadge() {
       <button class="bar-btn hidden" id="nextReviewBtn">Review next</button>
       <button class="bar-btn hidden" id="undoBtn" title="Restore pre-fill form values">Undo fill</button>
       <button class="bar-btn hidden" id="saveAnswersBtn">Save answers</button>
+      <button class="bar-btn bar-btn-accent hidden" id="nextStepBtn">Fill next step</button>
       <button class="bar-btn bar-btn-accent hidden" id="logAppBtn">Log application</button>
       <button class="bar-close" id="closeBtn" title="Dismiss">×</button>
     </div>
@@ -1141,6 +1440,7 @@ function jobfillCreateBadge() {
   const nextReviewBtn = shadow.getElementById("nextReviewBtn");
   const undoBtn = shadow.getElementById("undoBtn");
   const saveAnswersBtn = shadow.getElementById("saveAnswersBtn");
+  const nextStepBtn = shadow.getElementById("nextStepBtn");
   const logAppBtn = shadow.getElementById("logAppBtn");
   const closeBtn = shadow.getElementById("closeBtn");
 
@@ -1315,6 +1615,17 @@ function jobfillCreateBadge() {
       root.querySelector("#bar").insertBefore(attachBtn, closeBtn);
     },
 
+    showNextStepPrompt(fieldCount, onFill) {
+      if (!host.isConnected) return;
+      statusMsg.textContent = `New step detected (${fieldCount} fields)`;
+      nextStepBtn.textContent = `Fill next step (${fieldCount})`;
+      nextStepBtn.classList.remove("hidden");
+      nextStepBtn.onclick = () => {
+        nextStepBtn.classList.add("hidden");
+        onFill();
+      };
+    },
+
     remove() {
       host.remove();
     },
@@ -1324,6 +1635,59 @@ function jobfillCreateBadge() {
   return controller;
 }
 
+// ---------- Multi-Step Form (Stepper / Wizard) Observer ----------
+
+function jobfillSetupMultiStepObserver(badge) {
+  if (window._jobfillObserverActive) return;
+  window._jobfillObserverActive = true;
+
+  let debounceTimer = null;
+  const observer = new MutationObserver(() => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      if (window._jobfillRunning) return;
+
+      const currentFields = jobfillScanFields();
+      if (currentFields.length === 0) return;
+
+      const unfilled = currentFields.filter((f) => {
+        const el = jobfillFindElement(f.id);
+        if (!el) return false;
+        if (el.getAttribute("data-jobfill-filled")) return false;
+        if (f.matchType === "radio" || f.matchType === "checkbox") {
+          return !el.checked && el.getAttribute("aria-checked") !== "true";
+        }
+        return !el.value || String(el.value).trim() === "";
+      });
+
+      // If 2 or more new un-filled fields are detected, prompt user to fill the new step
+      if (unfilled.length >= 2 && badge && typeof badge.showNextStepPrompt === "function") {
+        badge.showNextStepPrompt(unfilled.length, () => {
+          if (typeof window.jobfillRun === "function") {
+            window.jobfillRun();
+          }
+        });
+      }
+    }, 700);
+  });
+
+  observer.observe(document.body || document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  window.addEventListener("popstate", () => {
+    setTimeout(() => {
+      if (typeof window.jobfillRun === "function") window.jobfillRun();
+    }, 800);
+  });
+  window.addEventListener("hashchange", () => {
+    setTimeout(() => {
+      if (typeof window.jobfillRun === "function") window.jobfillRun();
+    }, 800);
+  });
+}
+
 // ---------- Restore / Undo Fill ----------
 
 function jobfillUndoFill() {
@@ -1331,7 +1695,7 @@ function jobfillUndoFill() {
   let count = 0;
 
   for (const [id, state] of window._jobfillSnapshot.entries()) {
-    const el = document.querySelector(`[data-jobfill-id="${id}"]`);
+    const el = jobfillFindElement(id);
     if (!el) continue;
 
     if (state.type === "select") {
@@ -1365,7 +1729,7 @@ function jobfillUndoFill() {
 function jobfillCollectUserInputs(fields) {
   const entries = {};
   for (const field of fields) {
-    const el = document.querySelector(`[data-jobfill-id="${field.id}"]`);
+    const el = jobfillFindElement(field.id);
     if (!el) continue;
     if (field.matchType === "file") continue;
 

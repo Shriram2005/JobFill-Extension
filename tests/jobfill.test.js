@@ -437,6 +437,38 @@ it("should distinguish profile photos and resumes for file inputs", () => {
   }
 });
 
+// 12. ATS & Workday Compatibility Tests
+it("should match Workday automation IDs and common ATS screening questions", () => {
+  // Workday automation ID matching
+  const wdFirst = { id: "wd1", matchType: "text", label: "legalnamesection_firstname" };
+  assert.strictEqual(rules.jobfillMatchField(wdFirst, mockProfile), "Alex", "Should match Workday first name automation ID");
+
+  const wdLast = { id: "wd2", matchType: "text", label: "legalnamesection_lastname" };
+  assert.strictEqual(rules.jobfillMatchField(wdLast, mockProfile), "Morgan", "Should match Workday last name automation ID");
+
+  const wdCity = { id: "wd3", matchType: "text", label: "addresssection_city" };
+  assert.strictEqual(rules.jobfillMatchField(wdCity, mockProfile), "San Francisco", "Should match Workday city automation ID");
+
+  const wdZip = { id: "wd4", matchType: "text", label: "addresssection_postalcode" };
+  assert.strictEqual(rules.jobfillMatchField(wdZip, mockProfile), "94105", "Should match Workday postal code automation ID");
+
+  // Common ATS screening questions
+  const prevEmp = { id: "s1", matchType: "text", label: "Have you previously worked or been employed by our company?" };
+  assert.strictEqual(rules.jobfillMatchField(prevEmp, mockProfile), "No");
+
+  const relatives = { id: "s2", matchType: "text", label: "Do you have any relatives or family members employed here?" };
+  assert.strictEqual(rules.jobfillMatchField(relatives, mockProfile), "No");
+
+  const nonCompete = { id: "s3", matchType: "text", label: "Are you subject to any active non-compete or restrictive covenant?" };
+  assert.strictEqual(rules.jobfillMatchField(nonCompete, mockProfile), "No");
+
+  const bgConsent = { id: "s4", matchType: "text", label: "Do you consent to a standard pre-employment background check?" };
+  assert.strictEqual(rules.jobfillMatchField(bgConsent, mockProfile), "Yes");
+
+  const latinoQ = { id: "s5", matchType: "text", label: "Are you Hispanic or Latino?" };
+  assert.strictEqual(rules.jobfillMatchField(latinoQ, mockProfile), "No");
+});
+
 console.log("==========================================");
 console.log(` Summary: ${passed}/${total} tests passed!`);
 console.log("==========================================");

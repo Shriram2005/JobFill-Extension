@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JobFill — ATS Autofill Test Playground</title>
+  <style>
+    :root {
+      --bg: #09090b;
+      --card-bg: #121215;
+      --border: #27272a;
+      --text: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 32px 16px;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 760px;
+    }
+    .header {
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      margin-bottom: 8px;
+    }
+    h1 { font-size: 24px; font-weight: 700; }
+    p.subtitle { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: #e4e4e7;
+    }
+    input[type="text"], input[type="email"], input[type="tel"], select, textarea {
+      width: 100%;
+      background: #18181b;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 9px 12px;
+      color: var(--text);
+      font-size: 13.5px;
+      transition: border-color 0.15s ease;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .radio-group, .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .option-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      color: #d4d4d8;
+    }
+    .step-banner {
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #6ee7b7;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 18px;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn-secondary {
+      background: #27272a;
+      color: #f4f4f5;
+    }
+    .btn-secondary:hover { background: #3f3f46; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="badge">ATS Compatibility Sandbox</span>
+      <h1>Job Application Test Playground</h1>
+      <p class="subtitle">
+        Test JobFill autofill against real-world ATS patterns (Workday, Greenhouse, Lever, Ashby, and multi-step steppers).
+        Press <kbd style="background:#27272a; padding:2px 6px; border-radius:4px; font-family:monospace; font-size:12px;">Alt+Shift+F</kbd> or click <b>Fill application</b> in the JobFill popup.
+      </p>
+    </div>
+
+    <!-- Step 1: Personal & Workday Form -->
+    <div id="step1">
+      <div class="card">
+        <h2 class="card-title">1. Candidate Information (Workday &amp; Standard Fields)</h2>
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="first_name">First Name *</label>
+            <input type="text" id="first_name" data-automation-id="legalNameSection_firstName" placeholder="First Name" />
+          </div>
+          <div class="form-group">
+            <label for="last_name">Last Name *</label>
+            <input type="text" id="last_name" data-automation-id="legalNameSection_lastName" placeholder="Last Name" />
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="email">Email Address *</label>
+            <input type="email" id="email" data-automation-id="email" placeholder="alex@example.com" />
+          </div>
+          <div class="form-group">
+            <label for="phone">Phone Number *</label>
+            <input type="tel" id="phone" data-automation-id="phone-number" placeholder="+1 (555) 000-0000" />
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="city">City *</label>
+            <input type="text" id="city" data-automation-id="addressSection_city" placeholder="e.g. San Francisco" />
+          </div>
+          <div class="form-group">
+            <label for="zip">Postal / Zip Code</label>
+            <input type="text" id="zip" data-automation-id="addressSection_postalCode" placeholder="e.g. 94105" />
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="linkedin">LinkedIn Profile URL</label>
+            <input type="text" id="linkedin" name="urls[LinkedIn]" placeholder="https://linkedin.com/in/..." />
+          </div>
+          <div class="form-group">
+            <label for="github">GitHub Profile URL</label>
+            <input type="text" id="github" name="urls[GitHub]" placeholder="https://github.com/..." />
+          </div>
+        </div>
+      </div>
+
+      <!-- Screening Questions -->
+      <div class="card">
+        <h2 class="card-title">2. Application Screening Questions</h2>
+        
+        <div class="form-group">
+          <label>Are you legally authorized to work in the country you are applying to? *</label>
+          <div class="radio-group">
+            <label class="option-label"><input type="radio" name="work_auth" value="yes" /> Yes, authorized</label>
+            <label class="option-label"><input type="radio" name="work_auth" value="no" /> No, not authorized</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Will you now or in the future require visa sponsorship? *</label>
+          <div class="radio-group">
+            <label class="option-label"><input type="radio" name="sponsorship" value="no" /> No</label>
+            <label class="option-label"><input type="radio" name="sponsorship" value="yes" /> Yes</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Have you previously worked for or been employed by our company? *</label>
+          <div class="radio-group">
+            <label class="option-label"><input type="radio" name="prev_employee" value="no" /> No, never employed here</label>
+            <label class="option-label"><input type="radio" name="prev_employee" value="yes" /> Yes, former employee</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Do you have any family members or relatives employed here?</label>
+          <div class="radio-group">
+            <label class="option-label"><input type="radio" name="relatives" value="no" /> No</label>
+            <label class="option-label"><input type="radio" name="relatives" value="yes" /> Yes</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="source_dropdown">How did you hear about this opportunity?</label>
+          <select id="source_dropdown" data-automation-id="source-dropdown">
+            <option value="">Select an option...</option>
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Company Website">Company Website</option>
+            <option value="Indeed">Indeed</option>
+            <option value="Referral">Employee Referral</option>
+            <option value="Glassdoor">Glassdoor</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="option-label" style="font-weight: 500;">
+            <input type="checkbox" id="bg_consent" />
+            <span>I consent to a standard pre-employment background check and verify that all information provided is accurate and truthful.</span>
+          </label>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 40px;">
+        <button type="button" id="nextStepBtn" class="btn">Proceed to Step 2 (Voluntary Disclosures) &rarr;</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Multi-step stepper test -->
+    <div id="step2" class="hidden">
+      <div class="step-banner">
+        <span><b>Step 2 Active:</b> Watch JobFill's multi-step observer detect these new fields and prompt "Fill next step"!</span>
+        <button type="button" id="prevStepBtn" class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;">&larr; Back to Step 1</button>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">Voluntary Self-Identification (EEO Demographics)</h2>
+        
+        <div class="form-group">
+          <label>Gender *</label>
+          <div class="radio-group">
+            <label class="option-label"><input type="radio" name="gender" value="Male" /> Male</label>
+            <label class="option-label"><input type="radio" name="gender" value="Female" /> Female</label>
+            <label class="option-label"><input type="radio" name="gender" value="Non-Binary" /> Non-Binary</label>
+            <label class="option-label"><input type="radio" name="gender" value="Decline" /> I decline to identify</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Are you Hispanic or Latino? *</label>
+          <div class="radio-group">
+            <label class="option-label"><input type="radio" name="hispanic" value="no" /> No</label>
+            <label class="option-label"><input type="radio" name="hispanic" value="yes" /> Yes</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="race_select">Race / Ethnicity *</label>
+          <select id="race_select">
+            <option value="">Select race/ethnicity...</option>
+            <option value="Asian">Asian</option>
+            <option value="White">White</option>
+            <option value="Black or African American">Black or African American</option>
+            <option value="Two or more races">Two or more races</option>
+            <option value="Decline">Decline to self-identify</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Veteran Status *</label>
+          <div class="radio-group">
+            <label class="option-label"><input type="radio" name="veteran" value="not_veteran" /> I am not a protected veteran</label>
+            <label class="option-label"><input type="radio" name="veteran" value="protected_veteran" /> I identify as a protected veteran</label>
+            <label class="option-label"><input type="radio" name="veteran" value="decline" /> I decline to identify</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Disability Status (Form CC-305) *</label>
+          <div class="radio-group">
+            <label class="option-label"><input type="radio" name="disability" value="no" /> No, I do not have a disability</label>
+            <label class="option-label"><input type="radio" name="disability" value="yes" /> Yes, I have a disability</label>
+            <label class="option-label"><input type="radio" name="disability" value="decline" /> I decline to identify</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="why_us">Why are you interested in joining our team? (Essay question for AI)</label>
+          <textarea id="why_us" rows="4" placeholder="Briefly describe what excites you about this role..."></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const step1 = document.getElementById("step1");
+    const step2 = document.getElementById("step2");
+    const nextBtn = document.getElementById("nextStepBtn");
+    const prevBtn = document.getElementById("prevStepBtn");
+
+    nextBtn.addEventListener("click", () => {
+      step1.classList.add("hidden");
+      step2.classList.remove("hidden");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    prevBtn.addEventListener("click", () => {
+      step2.classList.add("hidden");
+      step1.classList.remove("hidden");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  </script>
+</body>
+</html>
+

@@ -713,6 +713,15 @@ async function handleDeleteApplication(id) {
   await chrome.storage.local.set({ [key]: filtered });
 }
 
+// Extension Installation & First-Run Welcome Handler
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onInstalled) {
+  chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === "install") {
+      chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
+    }
+  });
+}
+
 // Global Keyboard Shortcut Listener
 if (typeof chrome !== "undefined" && chrome.commands && chrome.commands.onCommand) {
   chrome.commands.onCommand.addListener(async (command) => {
@@ -721,7 +730,7 @@ if (typeof chrome !== "undefined" && chrome.commands && chrome.commands.onComman
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if (tab && tab.id && /^https?:\/\//i.test(tab.url || "")) {
           await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
+            target: { tabId: tab.id, allFrames: true },
             files: ["constants.js", "rules.js", "content.js"],
           });
         }
