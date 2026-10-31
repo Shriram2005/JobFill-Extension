@@ -11,11 +11,12 @@
 // - Explicit confirmation for resume attachment.
 // - Quick logging to the built-in Application Tracker.
 
-var _jobfillActiveBar = window._jobfillActiveBar || null;
-window._jobfillSnapshot = window._jobfillSnapshot || new Map();
-window._jobfillObserverActive = window._jobfillObserverActive || false;
+const _global = typeof window !== "undefined" ? window : global;
+var _jobfillActiveBar = _global._jobfillActiveBar || null;
+_global._jobfillSnapshot = _global._jobfillSnapshot || new Map();
+_global._jobfillObserverActive = _global._jobfillObserverActive || false;
 
-window.jobfillRun = async function jobfillRun() {
+_global.jobfillRun = async function jobfillRun() {
   if (window._jobfillRunning) return;
   window._jobfillRunning = true;
 
@@ -461,8 +462,25 @@ window.jobfillRun = async function jobfillRun() {
   }
 };
 
-// Immediate execution when injected
-window.jobfillRun();
+// Immediate execution when injected into a browser page
+if (typeof window !== "undefined" && typeof window.jobfillRun === "function") {
+  if (!window._jobfillNoAutoRun) {
+    window.jobfillRun();
+  }
+}
+
+// Runtime message listener for on-demand execution (e.g. from popup or shortcut)
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message && message.action === "jobfillRun") {
+      if (typeof window !== "undefined" && typeof window.jobfillRun === "function") {
+        window.jobfillRun();
+        sendResponse({ ok: true });
+      }
+      return true;
+    }
+  });
+}
 
 // ---------- Form Field Scanning & DOM Analysis (with Shadow DOM Support) ----------
 
@@ -1174,6 +1192,15 @@ function jobfillMarkFilled(field, source) {
   el.style.setProperty("outline-offset", "1px", "important");
   el.title = source === "rule" ? "Filled by JobFill (Profile Match)" : "Filled by JobFill (AI)";
   window._jobfillHighlightedElements.push(el);
+
+  if (!el.getAttribute("data-jobfill-popover-bound")) {
+    el.setAttribute("data-jobfill-popover-bound", "true");
+    el.addEventListener("focus", () => {
+      if (_jobfillActiveBar && typeof _jobfillActiveBar.handleFieldFocus === "function") {
+        _jobfillActiveBar.handleFieldFocus(el, field, source, null);
+      }
+    });
+  }
 }
 
 function jobfillMarkManual(field, reason) {
@@ -1185,6 +1212,15 @@ function jobfillMarkManual(field, reason) {
   el.title = `JobFill review: ${reason}`;
   window._jobfillManualFields.push({ el, field, reason });
   window._jobfillHighlightedElements.push(el);
+
+  if (!el.getAttribute("data-jobfill-popover-bound")) {
+    el.setAttribute("data-jobfill-popover-bound", "true");
+    el.addEventListener("focus", () => {
+      if (_jobfillActiveBar && typeof _jobfillActiveBar.handleFieldFocus === "function") {
+        _jobfillActiveBar.handleFieldFocus(el, field, "manual", reason);
+      }
+    });
+  }
 }
 
 // ---------- User Input Observation & Sensitive Filter ----------
@@ -1228,259 +1264,590 @@ function jobfillCreateBadge() {
   const host = document.createElement("div");
   host.setAttribute("data-jobfill-toolbar", "true");
   host.style.position = "fixed";
-  host.style.bottom = "16px";
-  host.style.right = "16px";
   host.style.zIndex = "2147483647";
+  host.style.pointerEvents = "none"; // host itself doesn't block clicks; children enable pointer-events
   document.documentElement.appendChild(host);
 
+  // Restore saved dock position if available in sessionStorage
+  let savedPos = null;
+  try {
+    const raw = sessionStorage.getItem("jobfill_dock_pos");
+    if (raw) savedPos = JSON.parse(raw);
+  } catch (_) {}
+
   const shadow = host.attachShadow({ mode: "open" });
-  const style = document.createElement("style");
-  style.textContent = `
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    
-    .bar {
-      font-size: 12px;
-      line-height: 1.4;
-      background: #121215;
-      color: #f4f4f5;
-      border: 1px solid #27272a;
-      border-radius: 8px;
-      padding: 8px 12px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      animation: fadeIn 0.15s ease;
-      max-width: 540px;
-    }
-
-    .bar-spinner {
-      width: 12px;
-      height: 12px;
-      border: 1.5px solid #3f3f46;
-      border-top-color: #3b82f6;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      flex-shrink: 0;
-    }
-
-    .bar-status {
-      color: #d4d4d8;
-      font-size: 12px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .pill-group {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .stat-pill {
-      font-size: 10.5px;
-      font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 4px;
-      white-space: nowrap;
-    }
-    .pill-rule { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .pill-ai { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-    .pill-manual { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-
-    .bar-btn {
-      background: #1e1e24;
-      border: 1px solid #3f3f46;
-      color: #f4f4f5;
-      font-size: 11px;
-      font-weight: 500;
-      padding: 4px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      white-space: nowrap;
-    }
-    .bar-btn:hover {
-      background: #27272a;
-      border-color: #52525b;
-    }
-    .bar-btn-accent {
-      background: #2563eb;
-      border-color: #3b82f6;
-      color: #fff;
-    }
-    .bar-btn-accent:hover {
-      background: #1d4ed8;
-    }
-    .bar-btn-danger {
-      border-color: #7f1d1d;
-      color: #f87171;
-    }
-    .bar-btn-danger:hover {
-      background: rgba(239, 68, 68, 0.1);
-    }
-
-    .bar-close {
-      background: none;
-      border: none;
-      color: #71717a;
-      font-size: 16px;
-      cursor: pointer;
-      padding: 0 4px;
-      line-height: 1;
-    }
-    .bar-close:hover {
-      color: #f4f4f5;
-    }
-
-    /* Modal inside shadow DOM */
-    .modal-overlay {
-      position: fixed;
-      bottom: 60px;
-      right: 16px;
-      width: 380px;
-      max-height: 400px;
-      background: #18181b;
-      border: 1px solid #3f3f46;
-      border-radius: 8px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      z-index: 10;
-    }
-    .modal-header {
-      padding: 10px 14px;
-      background: #1f1f23;
-      border-bottom: 1px solid #27272a;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-weight: 600;
-      font-size: 12px;
-    }
-    .modal-body {
-      padding: 12px;
-      overflow-y: auto;
-      max-height: 280px;
-      font-size: 11.5px;
-    }
-    .entry-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      margin-bottom: 10px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid #27272a;
-    }
-    .entry-label {
-      font-weight: 600;
-      color: #93c5fd;
-      display: block;
-      margin-bottom: 2px;
-    }
-    .entry-val {
-      color: #e4e4e7;
-    }
-    .modal-footer {
-      padding: 8px 12px;
-      background: #1f1f23;
-      border-top: 1px solid #27272a;
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .hidden { display: none !important; }
-
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-  `;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  if (typeof chrome !== "undefined" && chrome?.runtime?.getURL) {
+    link.href = chrome.runtime.getURL("content.css");
+  }
+  shadow.appendChild(link);
 
   const root = document.createElement("div");
   root.innerHTML = `
-    <div class="bar" id="bar">
-      <span class="bar-spinner" id="spinner"></span>
-      <span class="bar-status" id="statusMsg">Initializing JobFill…</span>
-      <div class="pill-group hidden" id="pillGroup">
-        <span class="stat-pill pill-rule" id="rulePill">0 rule</span>
-        <span class="stat-pill pill-ai" id="aiPill">0 ai</span>
-        <span class="stat-pill pill-manual" id="manualPill">0 review</span>
+    <!-- Main Dock Container -->
+    <div class="dock-wrapper" id="dockWrapper">
+      <div class="dock" id="dock">
+        <div class="shimmer-line" id="shimmerLine"></div>
+
+        <!-- Header: Drag Handle + Brand + Controls -->
+        <div class="dock-header" id="dockHeader">
+          <div class="brand-wrap">
+            <div class="drag-grip" id="dragGrip" title="Drag to reposition">
+              <svg width="8" height="14" viewBox="0 0 10 16" fill="currentColor">
+                <circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>
+                <circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/>
+                <circle cx="2" cy="14" r="1.5"/><circle cx="8" cy="14" r="1.5"/>
+              </svg>
+            </div>
+            <div class="brand">
+              <div class="brand-icon">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+              </div>
+              <span>JobFill</span>
+            </div>
+          </div>
+          <div class="controls-group">
+            <button class="icon-btn" id="minimizeBtn" title="Minimize toolbar">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button class="icon-btn" id="closeBtn" title="Dismiss">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Status Area -->
+        <div class="status-area">
+          <div class="status-icon-wrap" id="statusIconWrap">
+            <span class="spinner" id="spinner"></span>
+          </div>
+          <span class="status-msg" id="statusMsg">Scanning fields…</span>
+        </div>
+
+        <!-- Summary Pills (3-column compact badges) -->
+        <div class="pill-group hidden" id="pillGroup">
+          <span class="stat-pill pill-rule" id="rulePill" title="Matched directly from profile">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+            <span id="rulePillText">0 rule</span>
+          </span>
+          <span class="stat-pill pill-ai" id="aiPill" title="Generated by Gemini AI">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>
+            <span id="aiPillText">0 ai</span>
+          </span>
+          <span class="stat-pill pill-manual" id="manualPill" title="Click to start review walkthrough">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span id="manualPillText">0 rev</span>
+          </span>
+        </div>
+
+        <!-- Vertical Action Buttons -->
+        <div class="actions-group">
+          <button class="btn btn-review hidden" id="nextReviewBtn" title="Navigate directly to fields requiring manual check">
+            <span>Review next</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="btn btn-accent hidden" id="nextStepBtn">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span>Fill next step</span>
+          </button>
+          <button class="btn hidden" id="undoBtn" title="Restore pre-fill form values">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+            <span>Undo fill</span>
+          </button>
+          <button class="btn hidden" id="saveAnswersBtn" title="Save answers you typed to memory for future applications">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-5.04Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-5.04Z"/></svg>
+            <span>Save answers</span>
+          </button>
+          <button class="btn hidden" id="logAppBtn" title="Log application to built-in Job Tracker">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>
+            <span>Log application</span>
+          </button>
+        </div>
       </div>
-      <button class="bar-btn hidden" id="nextReviewBtn">Review next</button>
-      <button class="bar-btn hidden" id="undoBtn" title="Restore pre-fill form values">Undo fill</button>
-      <button class="bar-btn hidden" id="saveAnswersBtn">Save answers</button>
-      <button class="bar-btn bar-btn-accent hidden" id="nextStepBtn">Fill next step</button>
-      <button class="bar-btn bar-btn-accent hidden" id="logAppBtn">Log application</button>
-      <button class="bar-close" id="closeBtn" title="Dismiss">×</button>
+
+      <!-- Minimized Floating Pill -->
+      <div class="minimized-pill hidden" id="minimizedPill" title="Click to expand JobFill controls">
+        <div class="brand-icon">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <span id="pillSummaryText">JobFill Active</span>
+        <button class="icon-btn" id="expandBtn" title="Expand panel" style="width: 16px; height: 16px;">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
+      </div>
+
+      <!-- Floating Attachment Card Prompt -->
+      <div class="attachment-card hidden" id="attachmentCard">
+        <div class="attach-head">
+          <div class="attach-icon" id="attachIcon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <div class="attach-meta">
+            <div class="attach-title" id="attachTitle">Attach Tailored Resume?</div>
+            <div class="attach-sub" id="attachSub">Senior Frontend Developer (resume.pdf)</div>
+          </div>
+        </div>
+        <div class="attach-actions">
+          <button class="btn" id="attachSkipBtn" style="width: auto;">Skip</button>
+          <button class="btn btn-accent" id="attachConfirmBtn" style="width: auto;">Attach File</button>
+        </div>
+      </div>
+
+      <!-- Multi-step Stepper Banner -->
+      <div class="stepper-banner hidden" id="stepperBanner">
+        <div class="attach-icon" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.3); color: #34d399;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <div class="attach-meta">
+          <div class="attach-title" id="stepperTitle">Step 2 Detected</div>
+          <div class="attach-sub" id="stepperSub">5 new fields found ready to autofill</div>
+        </div>
+        <button class="btn btn-accent" id="stepperFillBtn" style="width: auto; padding: 4px 10px;">Fill Step</button>
+        <button class="icon-btn" id="stepperCloseBtn" style="margin-left: 2px;">×</button>
+      </div>
     </div>
-    <div class="modal-overlay hidden" id="confirmModal">
-      <div class="modal-header">
-        <span id="modalTitle">Review Answers to Save</span>
-        <button class="bar-close" id="closeModalBtn">×</button>
+
+    <!-- In-Field Floating Callout Popover -->
+    <div class="field-popover hidden" id="fieldPopover">
+      <div class="popover-caret"></div>
+      <div class="popover-header">
+        <div class="popover-badge" id="popoverBadge">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span id="popoverStepText">Review 1 of 3</span>
+        </div>
+        <button class="icon-btn" id="popoverCloseBtn" title="Close review popover">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
-      <div class="modal-body" id="modalList"></div>
-      <div class="modal-footer">
-        <button class="bar-btn" id="modalCancelBtn">Cancel</button>
-        <button class="bar-btn bar-btn-accent" id="modalSaveBtn">Confirm &amp; Save</button>
+      <div class="popover-title" id="popoverTitle">Field Label</div>
+      <div class="popover-desc" id="popoverDesc">Reason field needs your attention.</div>
+      <div class="popover-actions">
+        <div class="popover-nav">
+          <button class="btn" id="popoverPrevBtn" title="Previous review item">← Prev</button>
+          <button class="btn" id="popoverNextBtn" title="Next review item">Next →</button>
+        </div>
+        <button class="btn btn-review" id="popoverDoneBtn">Mark as Done ✓</button>
       </div>
+    </div>
+
+    <!-- Save Answers to Memory Modal -->
+    <div class="modal-backdrop hidden" id="confirmModal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <div class="modal-head-title">
+            <span style="font-size: 16px;">🧠</span>
+            <span>Save Answers to Memory</span>
+          </div>
+          <button class="icon-btn" id="closeModalBtn" title="Close">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-subhead">
+          <span id="modalSubheadText">JobFill learned these answers from your input. Save them to auto-fill future applications.</span>
+          <button class="btn" id="modalToggleAllBtn" style="padding: 2px 8px; font-size: 10.5px;">Deselect All</button>
+        </div>
+        <div class="modal-body" id="modalList"></div>
+        <div class="modal-foot">
+          <button class="btn" id="modalCancelBtn">Cancel</button>
+          <button class="btn btn-accent" id="modalSaveBtn">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span id="modalSaveBtnText">Confirm &amp; Save</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transient Toast Notification -->
+    <div class="toast hidden" id="toast">
+      <span id="toastIcon">✓</span>
+      <span id="toastMsg">Operation successful</span>
     </div>
   `;
 
-  shadow.appendChild(style);
   shadow.appendChild(root);
 
-  const spinner = shadow.getElementById("spinner");
+  // Element handles
+  const dockWrapper = shadow.getElementById("dockWrapper");
+  const dock = shadow.getElementById("dock");
+  const dragGrip = shadow.getElementById("dragGrip");
+  const shimmerLine = shadow.getElementById("shimmerLine");
+  const statusIconWrap = shadow.getElementById("statusIconWrap");
   const statusMsg = shadow.getElementById("statusMsg");
   const pillGroup = shadow.getElementById("pillGroup");
   const rulePill = shadow.getElementById("rulePill");
+  const rulePillText = shadow.getElementById("rulePillText");
   const aiPill = shadow.getElementById("aiPill");
+  const aiPillText = shadow.getElementById("aiPillText");
   const manualPill = shadow.getElementById("manualPill");
+  const manualPillText = shadow.getElementById("manualPillText");
   const nextReviewBtn = shadow.getElementById("nextReviewBtn");
   const undoBtn = shadow.getElementById("undoBtn");
   const saveAnswersBtn = shadow.getElementById("saveAnswersBtn");
   const nextStepBtn = shadow.getElementById("nextStepBtn");
   const logAppBtn = shadow.getElementById("logAppBtn");
+  const minimizeBtn = shadow.getElementById("minimizeBtn");
   const closeBtn = shadow.getElementById("closeBtn");
 
+  const minimizedPill = shadow.getElementById("minimizedPill");
+  const pillSummaryText = shadow.getElementById("pillSummaryText");
+  const expandBtn = shadow.getElementById("expandBtn");
+
+  const fieldPopover = shadow.getElementById("fieldPopover");
+  const popoverStepText = shadow.getElementById("popoverStepText");
+  const popoverCloseBtn = shadow.getElementById("popoverCloseBtn");
+  const popoverTitle = shadow.getElementById("popoverTitle");
+  const popoverDesc = shadow.getElementById("popoverDesc");
+  const popoverPrevBtn = shadow.getElementById("popoverPrevBtn");
+  const popoverNextBtn = shadow.getElementById("popoverNextBtn");
+  const popoverDoneBtn = shadow.getElementById("popoverDoneBtn");
+
+  const attachmentCard = shadow.getElementById("attachmentCard");
+  const attachIcon = shadow.getElementById("attachIcon");
+  const attachTitle = shadow.getElementById("attachTitle");
+  const attachSub = shadow.getElementById("attachSub");
+  const attachSkipBtn = shadow.getElementById("attachSkipBtn");
+  const attachConfirmBtn = shadow.getElementById("attachConfirmBtn");
+
+  const stepperBanner = shadow.getElementById("stepperBanner");
+  const stepperTitle = shadow.getElementById("stepperTitle");
+  const stepperSub = shadow.getElementById("stepperSub");
+  const stepperFillBtn = shadow.getElementById("stepperFillBtn");
+  const stepperCloseBtn = shadow.getElementById("stepperCloseBtn");
+
   const confirmModal = shadow.getElementById("confirmModal");
+  const modalSubheadText = shadow.getElementById("modalSubheadText");
+  const modalToggleAllBtn = shadow.getElementById("modalToggleAllBtn");
   const modalList = shadow.getElementById("modalList");
   const closeModalBtn = shadow.getElementById("closeModalBtn");
   const modalCancelBtn = shadow.getElementById("modalCancelBtn");
   const modalSaveBtn = shadow.getElementById("modalSaveBtn");
+  const modalSaveBtnText = shadow.getElementById("modalSaveBtnText");
+
+  const toast = shadow.getElementById("toast");
+  const toastIcon = shadow.getElementById("toastIcon");
+  const toastMsg = shadow.getElementById("toastMsg");
 
   let reviewIndex = 0;
   let activeFields = [];
   let pendingEntries = {};
+  let currentActiveFieldItem = null;
+  let toastTimer = null;
+  let isMinimized = false;
 
-  closeBtn.addEventListener("click", () => host.remove());
-  closeModalBtn.addEventListener("click", () => confirmModal.classList.add("hidden"));
-  modalCancelBtn.addEventListener("click", () => confirmModal.classList.add("hidden"));
+  // Restore dock coordinates if stored
+  if (savedPos && typeof savedPos.left === "number" && typeof savedPos.top === "number") {
+    const maxX = window.innerWidth - 120;
+    const maxY = window.innerHeight - 50;
+    const clampedX = Math.max(10, Math.min(maxX, savedPos.left));
+    const clampedY = Math.max(10, Math.min(maxY, savedPos.top));
+    dockWrapper.style.left = `${clampedX}px`;
+    dockWrapper.style.top = `${clampedY}px`;
+    dockWrapper.style.bottom = "auto";
+    dockWrapper.style.right = "auto";
+  }
 
-  // Next manual review navigation
+  // Toast notification helper
+  function showToast(message, icon = "✓", duration = 2800) {
+    clearTimeout(toastTimer);
+    toastIcon.textContent = icon;
+    toastMsg.textContent = message;
+    toast.classList.remove("hidden");
+    toastTimer = setTimeout(() => {
+      toast.classList.add("hidden");
+    }, duration);
+  }
+
+  // Reposition floating in-field popover
+  function positionPopover(popoverEl, targetEl) {
+    if (!popoverEl || !targetEl || !popoverEl.isConnected) return;
+    const rect = targetEl.getBoundingClientRect();
+    const popoverRect = popoverEl.getBoundingClientRect();
+    const margin = 10;
+
+    let top = rect.top - popoverRect.height - margin;
+    let placement = "top";
+
+    if (top < 10) {
+      top = rect.bottom + margin;
+      placement = "bottom";
+    }
+
+    let left = rect.left + rect.width / 2 - popoverRect.width / 2;
+    const maxLeft = window.innerWidth - popoverRect.width - 16;
+    left = Math.max(16, Math.min(maxLeft, left));
+
+    popoverEl.style.top = `${Math.round(top)}px`;
+    popoverEl.style.left = `${Math.round(left)}px`;
+    popoverEl.className = `field-popover placement-${placement}`;
+
+    const caret = popoverEl.querySelector(".popover-caret");
+    if (caret) {
+      const caretLeft = Math.max(
+        16,
+        Math.min(popoverRect.width - 24, rect.left + rect.width / 2 - left - 5)
+      );
+      caret.style.left = `${Math.round(caretLeft)}px`;
+    }
+  }
+
+  // Highlight pulse animation on field
+  function pulseTargetElement(el) {
+    if (!el) return;
+    el.style.setProperty("outline", "2.5px solid #f59e0b", "important");
+    el.style.setProperty("box-shadow", "0 0 0 6px rgba(245, 158, 11, 0.35)", "important");
+    setTimeout(() => {
+      if (el.hasAttribute("data-jobfill-manual")) {
+        el.style.setProperty("outline", "1.5px solid #f59e0b", "important");
+        el.style.removeProperty("box-shadow");
+      }
+    }, 1200);
+  }
+
+  function hideFieldPopover() {
+    fieldPopover.classList.add("hidden");
+    currentActiveFieldItem = null;
+  }
+
+  function showFieldPopover(item, stepNum, totalSteps) {
+    if (!item || !item.el) return;
+    currentActiveFieldItem = item;
+
+    popoverStepText.textContent = `Review ${stepNum} of ${totalSteps}`;
+    popoverTitle.textContent = item.field.label || item.field.name || "Application Field";
+    popoverDesc.textContent = item.reason || "Please verify or complete this field manually.";
+
+    popoverPrevBtn.disabled = totalSteps <= 1;
+    popoverNextBtn.disabled = totalSteps <= 1;
+
+    fieldPopover.classList.remove("hidden");
+    positionPopover(fieldPopover, item.el);
+  }
+
+  // Window scroll/resize observer to keep in-field popover anchored
+  const onViewportUpdate = () => {
+    if (currentActiveFieldItem && currentActiveFieldItem.el && !fieldPopover.classList.contains("hidden")) {
+      positionPopover(fieldPopover, currentActiveFieldItem.el);
+    }
+  };
+  window.addEventListener("scroll", onViewportUpdate, { passive: true });
+  window.addEventListener("resize", onViewportUpdate, { passive: true });
+
+  // Interactive review walkthrough
+  function startReviewWalkthrough(targetIndex = null) {
+    const list = window._jobfillManualFields || [];
+    if (list.length === 0) {
+      statusMsg.textContent = "All manual review fields completed!";
+      nextReviewBtn.classList.add("hidden");
+      manualPill.classList.remove("has-items");
+      hideFieldPopover();
+      showToast("All manual review fields checked! 🎉");
+      return;
+    }
+
+    if (targetIndex !== null) {
+      reviewIndex = ((targetIndex % list.length) + list.length) % list.length;
+    } else {
+      reviewIndex = reviewIndex % list.length;
+    }
+
+    const currentItem = list[reviewIndex];
+    if (!currentItem || !currentItem.el) return;
+
+    currentItem.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    try {
+      currentItem.el.focus();
+    } catch (_) {}
+
+    pulseTargetElement(currentItem.el);
+    showFieldPopover(currentItem, reviewIndex + 1, list.length);
+
+    statusMsg.textContent = `Review (${reviewIndex + 1}/${list.length}): ${jobfillTruncate(
+      currentItem.field.label || currentItem.reason,
+      35
+    )}`;
+    nextReviewBtn.querySelector("span").textContent = `Review next (${reviewIndex + 1}/${list.length})`;
+  }
+
+  // Next / Prev review button handlers
   nextReviewBtn.addEventListener("click", () => {
     const list = window._jobfillManualFields || [];
     if (list.length === 0) {
-      statusMsg.textContent = "All manual review fields checked.";
-      nextReviewBtn.classList.add("hidden");
+      startReviewWalkthrough();
       return;
     }
-    const item = list[reviewIndex % list.length];
-    reviewIndex++;
-    if (item && item.el) {
-      item.el.scrollIntoView({ behavior: "smooth", block: "center" });
-      item.el.focus();
-      statusMsg.textContent = `Review: ${item.field.label || item.reason}`;
+    reviewIndex = (reviewIndex + 1) % list.length;
+    startReviewWalkthrough(reviewIndex);
+  });
+
+  manualPill.addEventListener("click", () => {
+    startReviewWalkthrough(reviewIndex);
+  });
+
+  popoverNextBtn.addEventListener("click", () => {
+    const list = window._jobfillManualFields || [];
+    if (list.length > 0) {
+      reviewIndex = (reviewIndex + 1) % list.length;
+      startReviewWalkthrough(reviewIndex);
     }
+  });
+
+  popoverPrevBtn.addEventListener("click", () => {
+    const list = window._jobfillManualFields || [];
+    if (list.length > 0) {
+      reviewIndex = (reviewIndex - 1 + list.length) % list.length;
+      startReviewWalkthrough(reviewIndex);
+    }
+  });
+
+  popoverCloseBtn.addEventListener("click", hideFieldPopover);
+
+  // Mark as Done in popover
+  popoverDoneBtn.addEventListener("click", () => {
+    if (!currentActiveFieldItem) return;
+    const { el } = currentActiveFieldItem;
+    if (el) {
+      el.removeAttribute("data-jobfill-manual");
+      el.style.removeProperty("outline");
+      el.style.removeProperty("outline-offset");
+      el.style.removeProperty("box-shadow");
+    }
+
+    // Remove from manual review list
+    const list = window._jobfillManualFields || [];
+    const idx = list.indexOf(currentActiveFieldItem);
+    if (idx !== -1) {
+      list.splice(idx, 1);
+    }
+
+    manualPillText.textContent = `${list.length} review`;
+    if (list.length === 0) {
+      manualPill.classList.remove("has-items");
+      nextReviewBtn.classList.add("hidden");
+      hideFieldPopover();
+      showToast("All manual review fields checked! Ready to submit 🎉");
+      statusMsg.textContent = "All manual review fields verified ✓";
+      updateMinimizedPill();
+    } else {
+      showToast("Field marked as done ✓", "✓", 1800);
+      reviewIndex = reviewIndex % list.length;
+      startReviewWalkthrough(reviewIndex);
+    }
+  });
+
+  // Draggable logic for Floating Dock & Pill
+  function setupDraggable(triggerEl) {
+    let startX = 0;
+    let startY = 0;
+    let initialLeft = 0;
+    let initialTop = 0;
+    let dragging = false;
+
+    triggerEl.addEventListener("mousedown", (e) => {
+      // Ignore clicks on buttons/inputs
+      if (e.target.closest("button") || e.target.closest("input") || e.target.closest("a")) return;
+      e.preventDefault();
+
+      const rect = dockWrapper.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      initialLeft = rect.left;
+      initialTop = rect.top;
+      dragging = true;
+
+      dock.classList.add("is-dragging");
+
+      function onMouseMove(moveEvent) {
+        if (!dragging) return;
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+
+        let newX = initialLeft + deltaX;
+        let newY = initialTop + deltaY;
+
+        const maxW = window.innerWidth - dockWrapper.offsetWidth - 10;
+        const maxH = window.innerHeight - dockWrapper.offsetHeight - 10;
+        newX = Math.max(10, Math.min(maxW, newX));
+        newY = Math.max(10, Math.min(maxH, newY));
+
+        dockWrapper.style.left = `${newX}px`;
+        dockWrapper.style.top = `${newY}px`;
+        dockWrapper.style.bottom = "auto";
+        dockWrapper.style.right = "auto";
+      }
+
+      function onMouseUp() {
+        if (!dragging) return;
+        dragging = false;
+        dock.classList.remove("is-dragging");
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+
+        // Store preferred dock coordinates in sessionStorage
+        try {
+          const rect = dockWrapper.getBoundingClientRect();
+          sessionStorage.setItem(
+            "jobfill_dock_pos",
+            JSON.stringify({ left: rect.left, top: rect.top })
+          );
+        } catch (_) {}
+      }
+
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    });
+  }
+
+  const dockHeader = shadow.getElementById("dockHeader");
+  if (dockHeader) setupDraggable(dockHeader);
+  setupDraggable(dragGrip);
+  setupDraggable(minimizedPill);
+
+  // Minimize / Expand logic
+  function updateMinimizedPill() {
+    const ruleCount = rulePillText.textContent.split(" ")[0] || "0";
+    const manualCount = manualPillText.textContent.split(" ")[0] || "0";
+    pillSummaryText.textContent = Number(manualCount) > 0
+      ? `JobFill • ${ruleCount}✓ • ${manualCount}⚠`
+      : `JobFill • ${ruleCount} filled ✓`;
+  }
+
+  minimizeBtn.addEventListener("click", () => {
+    isMinimized = true;
+    updateMinimizedPill();
+    dock.classList.add("hidden");
+    minimizedPill.classList.remove("hidden");
+    hideFieldPopover();
+  });
+
+  function expandDock() {
+    isMinimized = false;
+    minimizedPill.classList.add("hidden");
+    dock.classList.remove("hidden");
+  }
+
+  expandBtn.addEventListener("click", expandDock);
+  minimizedPill.addEventListener("click", (e) => {
+    if (!e.target.closest("button")) expandDock();
+  });
+
+  closeBtn.addEventListener("click", () => {
+    hideFieldPopover();
+    host.remove();
   });
 
   // Undo Fill button handler
   undoBtn.addEventListener("click", () => {
+    hideFieldPopover();
     const restored = jobfillUndoFill();
     statusMsg.textContent = `Restored ${restored} field(s) to original values.`;
     undoBtn.classList.add("hidden");
+    nextReviewBtn.classList.add("hidden");
     pillGroup.classList.add("hidden");
+    shimmerLine.classList.add("done");
+    showToast(`Restored ${restored} field(s) to pre-fill state`, "↩");
   });
 
   // Save Answers confirmation modal
@@ -1488,18 +1855,22 @@ function jobfillCreateBadge() {
     pendingEntries = jobfillCollectUserInputs(activeFields);
     const keys = Object.keys(pendingEntries);
     if (keys.length === 0) {
+      showToast("No new manual edits found to save.", "ℹ");
       statusMsg.textContent = "No new manual edits found to save.";
       return;
     }
 
+    modalSubheadText.textContent = `JobFill detected ${keys.length} answer(s) you entered. Select the ones you want saved:`;
+    modalSaveBtnText.textContent = `Confirm & Save (${keys.length})`;
+
     modalList.innerHTML = keys
       .map(
         (q, idx) => `
-        <div class="entry-row">
+        <div class="entry-card">
           <input type="checkbox" id="check_${idx}" data-q="${encodeURIComponent(q)}" checked />
-          <div>
-            <span class="entry-label">${escapeHtml(q)}</span>
-            <span class="entry-val">${escapeHtml(pendingEntries[q].answer)}</span>
+          <div class="entry-info">
+            <div class="entry-q">${escapeHtml(q)}</div>
+            <div class="entry-a">${escapeHtml(pendingEntries[q].answer)}</div>
           </div>
         </div>
       `
@@ -1507,7 +1878,33 @@ function jobfillCreateBadge() {
       .join("");
 
     confirmModal.classList.remove("hidden");
+
+    // Dynamic counter update when checking/unchecking
+    const updateModalSaveCount = () => {
+      const selected = modalList.querySelectorAll("input[type='checkbox']:checked").length;
+      modalSaveBtnText.textContent = `Confirm & Save (${selected})`;
+      modalSaveBtn.disabled = selected === 0;
+    };
+    modalList.querySelectorAll("input[type='checkbox']").forEach((chk) => {
+      chk.addEventListener("change", updateModalSaveCount);
+    });
   });
+
+  // Modal Select All / Deselect All
+  modalToggleAllBtn.addEventListener("click", () => {
+    const checkboxes = modalList.querySelectorAll("input[type='checkbox']");
+    const anyUnchecked = Array.from(checkboxes).some((chk) => !chk.checked);
+    checkboxes.forEach((chk) => {
+      chk.checked = anyUnchecked;
+    });
+    modalToggleAllBtn.textContent = anyUnchecked ? "Deselect All" : "Select All";
+    const selected = modalList.querySelectorAll("input[type='checkbox']:checked").length;
+    modalSaveBtnText.textContent = `Confirm & Save (${selected})`;
+    modalSaveBtn.disabled = selected === 0;
+  });
+
+  closeModalBtn.addEventListener("click", () => confirmModal.classList.add("hidden"));
+  modalCancelBtn.addEventListener("click", () => confirmModal.classList.add("hidden"));
 
   modalSaveBtn.addEventListener("click", async () => {
     const approved = {};
@@ -1522,6 +1919,7 @@ function jobfillCreateBadge() {
     const count = Object.keys(approved).length;
     if (count > 0) {
       await jobfillSaveToMemory(approved);
+      showToast(`Saved ${count} answer(s) to memory! 🧠`);
       statusMsg.textContent = `Saved ${count} answer(s) to memory!`;
     }
   });
@@ -1529,104 +1927,181 @@ function jobfillCreateBadge() {
   // Log to Application Tracker
   logAppBtn.addEventListener("click", async () => {
     logAppBtn.disabled = true;
-    logAppBtn.textContent = "Logging…";
+    logAppBtn.querySelector("span").textContent = "Logging…";
     const appInfo = jobfillExtractAppInfo();
     try {
       await chrome.runtime.sendMessage({
         action: "logApplication",
         application: appInfo,
       });
-      logAppBtn.textContent = "Logged ✓";
+      logAppBtn.querySelector("span").textContent = "Logged ✓";
+      showToast("Application logged to Job Tracker ✓", "✓");
     } catch (_) {
-      logAppBtn.textContent = "Log failed";
+      logAppBtn.querySelector("span").textContent = "Log failed";
+      showToast("Failed to log application", "⚠");
     }
     setTimeout(() => {
       logAppBtn.disabled = false;
-      logAppBtn.textContent = "Log application";
+      logAppBtn.querySelector("span").textContent = "Log app";
     }, 2500);
   });
+
+  // Stepper Banner dismiss
+  stepperCloseBtn.addEventListener("click", () => {
+    stepperBanner.classList.add("hidden");
+  });
+
+  // Keyboard shortcut listener inside window for modal / popover escape
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") {
+      if (!confirmModal.classList.contains("hidden")) {
+        confirmModal.classList.add("hidden");
+      } else if (!fieldPopover.classList.contains("hidden")) {
+        hideFieldPopover();
+      }
+    }
+  };
+  window.addEventListener("keydown", onKeyDown);
 
   const controller = {
     setStatus(text, type = "info") {
       statusMsg.textContent = text;
       if (type === "done" || type === "error" || type === "warn") {
-        spinner.classList.add("hidden");
+        statusIconWrap.innerHTML =
+          type === "done"
+            ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
+            : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+        shimmerLine.classList.add("done");
       } else {
-        spinner.classList.remove("hidden");
+        statusIconWrap.innerHTML = '<span class="spinner"></span>';
+        shimmerLine.classList.remove("done");
       }
     },
 
     showSummary(counts, fields) {
       activeFields = fields;
-      spinner.classList.add("hidden");
+      shimmerLine.classList.add("done");
       pillGroup.classList.remove("hidden");
 
-      rulePill.textContent = `${counts.rule} rule`;
-      aiPill.textContent = `${counts.ai} ai`;
-      manualPill.textContent = `${counts.manual} review`;
+      rulePillText.textContent = `${counts.rule} rule`;
+      aiPillText.textContent = `${counts.ai} ai`;
+      manualPillText.textContent = `${counts.manual} rev`;
 
-      statusMsg.textContent = "Form filled. Review before submitting.";
+      statusIconWrap.innerHTML =
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+      statusMsg.textContent =
+        counts.manual > 0
+          ? `${counts.manual} field(s) need review`
+          : "Form filled ready ✓";
 
       if (counts.manual > 0) {
         nextReviewBtn.classList.remove("hidden");
+        nextReviewBtn.querySelector("span").textContent = `Review next (1/${counts.manual})`;
+        manualPill.classList.add("has-items");
       }
       if (window._jobfillSnapshot.size > 0) {
         undoBtn.classList.remove("hidden");
       }
       saveAnswersBtn.classList.remove("hidden");
       logAppBtn.classList.remove("hidden");
+
+      updateMinimizedPill();
+
+      if (counts.manual > 0) {
+        showToast(`${counts.manual} field(s) require manual review`, "⚠", 3200);
+      } else {
+        showToast("Application form filled ✓", "✓", 2500);
+      }
     },
 
     promptPhotoAttach(field, photo) {
-      statusMsg.textContent = "Attach profile picture?";
-      const attachBtn = document.createElement("button");
-      attachBtn.className = "bar-btn bar-btn-accent";
-      attachBtn.textContent = "Attach Photo";
-      attachBtn.onclick = () => {
+      attachTitle.textContent = "Attach Profile Photo?";
+      attachSub.textContent = photo.filename || "Candidate Profile Photo";
+      attachIcon.innerHTML =
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>';
+      attachConfirmBtn.textContent = "Attach Photo";
+
+      attachmentCard.classList.remove("hidden");
+
+      attachConfirmBtn.onclick = () => {
         const ok = jobfillFillFile(field, photo);
         if (ok) {
           jobfillMarkFilled(field, "rule");
-          statusMsg.textContent = "Attached candidate profile picture ✓";
+          statusMsg.textContent = "Attached profile photo ✓";
+          showToast("Profile photo attached ✓");
         } else {
           jobfillMarkManual(field, "Browser security blocked automatic photo upload.");
-          statusMsg.textContent = "Browser blocked upload — please attach manually.";
+          statusMsg.textContent = "Browser blocked upload — please attach photo manually.";
+          showToast("Browser security blocked upload — please attach manually", "⚠");
         }
-        attachBtn.remove();
+        attachmentCard.classList.add("hidden");
       };
-      root.querySelector("#bar").insertBefore(attachBtn, closeBtn);
+
+      attachSkipBtn.onclick = () => {
+        attachmentCard.classList.add("hidden");
+        showToast("Photo upload skipped", "ℹ");
+      };
     },
 
     promptResumeAttach(field, resume) {
-      statusMsg.textContent = `Attach "${resume.role}" resume?`;
-      const attachBtn = document.createElement("button");
-      attachBtn.className = "bar-btn bar-btn-accent";
-      attachBtn.textContent = "Attach";
-      attachBtn.onclick = () => {
+      attachTitle.textContent = `Attach "${resume.role}" Resume?`;
+      attachSub.textContent = resume.filename || "Resume.pdf";
+      attachIcon.innerHTML =
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+      attachConfirmBtn.textContent = "Attach Resume";
+
+      attachmentCard.classList.remove("hidden");
+
+      attachConfirmBtn.onclick = () => {
         const ok = jobfillFillFile(field, resume);
         if (ok) {
           jobfillMarkFilled(field, "ai");
-          statusMsg.textContent = `Attached ${resume.role} resume.`;
+          statusMsg.textContent = `Attached ${resume.role} resume ✓`;
+          showToast(`Attached ${resume.role} resume ✓`);
         } else {
           jobfillMarkManual(field, "Browser security blocked automatic file upload.");
-          statusMsg.textContent = "Browser blocked upload — please attach manually.";
+          statusMsg.textContent = "Browser blocked upload — please attach resume manually.";
+          showToast("Browser security blocked upload — please attach manually", "⚠");
         }
-        attachBtn.remove();
+        attachmentCard.classList.add("hidden");
       };
-      root.querySelector("#bar").insertBefore(attachBtn, closeBtn);
+
+      attachSkipBtn.onclick = () => {
+        attachmentCard.classList.add("hidden");
+        showToast("Resume upload skipped", "ℹ");
+      };
     },
 
     showNextStepPrompt(fieldCount, onFill) {
       if (!host.isConnected) return;
-      statusMsg.textContent = `New step detected (${fieldCount} fields)`;
-      nextStepBtn.textContent = `Fill next step (${fieldCount})`;
-      nextStepBtn.classList.remove("hidden");
-      nextStepBtn.onclick = () => {
-        nextStepBtn.classList.add("hidden");
+      stepperTitle.textContent = "Next Form Step Detected";
+      stepperSub.textContent = `${fieldCount} new fields detected on this page.`;
+      stepperFillBtn.textContent = `Fill Step (${fieldCount}) ⚡`;
+
+      stepperBanner.classList.remove("hidden");
+      showToast(`Next step detected (${fieldCount} new fields)`, "⚡", 3500);
+
+      stepperFillBtn.onclick = () => {
+        stepperBanner.classList.add("hidden");
         onFill();
       };
     },
 
+    handleFieldFocus(el, field, source, reason) {
+      if (source === "manual") {
+        const list = window._jobfillManualFields || [];
+        const idx = list.findIndex((item) => item.el === el || item.field.id === field.id);
+        if (idx !== -1) {
+          reviewIndex = idx;
+          showFieldPopover(list[idx], idx + 1, list.length);
+        }
+      }
+    },
+
     remove() {
+      window.removeEventListener("scroll", onViewportUpdate);
+      window.removeEventListener("resize", onViewportUpdate);
+      window.removeEventListener("keydown", onKeyDown);
       host.remove();
     },
   };
@@ -1920,4 +2395,14 @@ async function jobfillAppendLog(entry) {
   const log = Array.isArray(existing) ? existing : [];
   log.unshift(entry);
   await chrome.storage.local.set({ [key]: log.slice(0, JOBFILL_DEFAULTS.MAX_LOG_ENTRIES) });
+}
+
+// Support Node.js testing environment if imported
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    jobfillTruncate,
+    escapeHtml,
+    jobfillNormalizeQuestion,
+    jobfillIsSensitiveField,
+  };
 }

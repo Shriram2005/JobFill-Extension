@@ -143,8 +143,19 @@
       <h1>Job Application Test Playground</h1>
       <p class="subtitle">
         Test JobFill autofill against real-world ATS patterns (Workday, Greenhouse, Lever, Ashby, and multi-step steppers).
-        Press <kbd style="background:#27272a; padding:2px 6px; border-radius:4px; font-family:monospace; font-size:12px;">Alt+Shift+F</kbd> or click <b>Fill application</b> in the JobFill popup.
+        Press <kbd style="background:#27272a; padding:2px 6px; border-radius:4px; font-family:monospace; font-size:12px;">Alt+Shift+F</kbd> or click <b>Fill test form</b> in the JobFill popup.
       </p>
+      <div style="display: flex; gap: 10px; margin-top: 14px; align-items: center; flex-wrap: wrap;">
+        <button type="button" id="sandboxFillBtn" class="btn" style="background: linear-gradient(135deg, #3b82f6, #2563eb); font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+          ⚡ Fill Application (Run JobFill)
+        </button>
+        <button type="button" id="sandboxResetBtn" class="btn btn-secondary" style="font-size: 13px;">
+          Reset Form Fields
+        </button>
+        <span style="font-size: 12.5px; color: var(--text-muted);">
+          You can also click <b>Fill test form</b> in the JobFill extension popup.
+        </span>
+      </div>
     </div>
 
     <!-- Step 1: Personal & Workday Form -->
@@ -192,6 +203,17 @@
           <div class="form-group">
             <label for="github">GitHub Profile URL</label>
             <input type="text" id="github" name="urls[GitHub]" placeholder="https://github.com/..." />
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label for="resume_file">Resume / CV Document *</label>
+            <input type="file" id="resume_file" name="resume" accept=".pdf,.doc,.docx" />
+          </div>
+          <div class="form-group">
+            <label for="photo_file">Profile Headshot / Photo (Optional)</label>
+            <input type="file" id="photo_file" name="photo" accept="image/*" />
           </div>
         </div>
       </div>
@@ -324,6 +346,12 @@
   </div>
 
   <script>
+    window._jobfillNoAutoRun = true;
+  </script>
+  <script src="constants.js"></script>
+  <script src="rules.js"></script>
+  <script src="content.js"></script>
+  <script>
     const step1 = document.getElementById("step1");
     const step2 = document.getElementById("step2");
     const nextBtn = document.getElementById("nextStepBtn");
@@ -339,6 +367,34 @@
       step2.classList.add("hidden");
       step1.classList.remove("hidden");
       window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+
+    document.getElementById("sandboxFillBtn")?.addEventListener("click", () => {
+      if (typeof window.jobfillRun === "function") {
+        window.jobfillRun();
+      }
+    });
+
+    document.getElementById("sandboxResetBtn")?.addEventListener("click", () => {
+      if (typeof window.jobfillUndoFill === "function" && window._jobfillSnapshot && window._jobfillSnapshot.size > 0) {
+        window.jobfillUndoFill();
+      } else {
+        document.querySelectorAll("input:not([type='radio']):not([type='checkbox']), textarea, select").forEach((el) => {
+          el.value = "";
+          el.style.removeProperty("outline");
+          el.removeAttribute("data-jobfill-filled");
+          el.removeAttribute("data-jobfill-manual");
+        });
+        document.querySelectorAll("input[type='radio'], input[type='checkbox']").forEach((el) => {
+          el.checked = false;
+          el.style.removeProperty("outline");
+          el.removeAttribute("data-jobfill-filled");
+          el.removeAttribute("data-jobfill-manual");
+        });
+      }
+      if (window._jobfillActiveBar && typeof window._jobfillActiveBar.remove === "function") {
+        window._jobfillActiveBar.remove();
+      }
     });
   </script>
 </body>

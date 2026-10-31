@@ -728,7 +728,23 @@ if (typeof chrome !== "undefined" && chrome.commands && chrome.commands.onComman
     if (command === "fill_application") {
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab && tab.id && /^https?:\/\//i.test(tab.url || "")) {
+        if (!tab || !tab.id) return;
+
+        const isOwnExtension = Boolean(
+          tab.url && chrome.runtime && chrome.runtime.getURL && tab.url.startsWith(chrome.runtime.getURL(""))
+        );
+        const isSandbox = isOwnExtension || /sandbox\.html/i.test(tab.url || "");
+
+        if (isSandbox) {
+          try {
+            await chrome.tabs.sendMessage(tab.id, { action: "jobfillRun" });
+          } catch (_) {
+            await chrome.scripting.executeScript({
+              target: { tabId: tab.id, allFrames: true },
+              files: ["constants.js", "rules.js", "content.js"],
+            });
+          }
+        } else if (/^https?:\/\//i.test(tab.url || "")) {
           await chrome.scripting.executeScript({
             target: { tabId: tab.id, allFrames: true },
             files: ["constants.js", "rules.js", "content.js"],

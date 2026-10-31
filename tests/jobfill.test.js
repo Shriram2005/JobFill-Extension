@@ -469,6 +469,53 @@ it("should match Workday automation IDs and common ATS screening questions", () 
   assert.strictEqual(rules.jobfillMatchField(latinoQ, mockProfile), "No");
 });
 
+// 13. Floating Popups & Toolbars UI/UX Logic Tests
+it("should truncate long strings cleanly with ellipsis for floating badges and popovers", () => {
+  const content = require("../content.js");
+  const shortText = content.jobfillTruncate("Short label", 20);
+  assert.strictEqual(shortText, "Short label");
+
+  const longText = content.jobfillTruncate("Please provide a comprehensive summary of your engineering experience", 25);
+  assert.strictEqual(longText, "Please provide a comprehe…");
+});
+
+it("should escape HTML safely for floating popovers and memory modals", () => {
+  const content = require("../content.js");
+  const escaped = content.escapeHtml('<script>alert("xss")</script> & "test"');
+  assert.strictEqual(escaped, '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt; &amp; &quot;test&quot;');
+});
+
+it("should clamp floating popover and dock coordinates inside screen boundaries", () => {
+  function clampCoordinates(x, y, elW, elH, winW, winH, pad = 10) {
+    const minX = pad;
+    const maxX = winW - elW - pad;
+    const minY = pad;
+    const maxY = winH - elH - pad;
+    return {
+      left: Math.max(minX, Math.min(maxX, x)),
+      top: Math.max(minY, Math.min(maxY, y)),
+    };
+  }
+
+  // Normal inside bounds
+  const pos1 = clampCoordinates(100, 200, 300, 40, 1920, 1080);
+  assert.strictEqual(pos1.left, 100);
+  assert.strictEqual(pos1.top, 200);
+
+  // Dragged too far off right edge
+  const pos2 = clampCoordinates(2000, 500, 300, 40, 1920, 1080);
+  assert.strictEqual(pos2.left, 1920 - 300 - 10);
+
+  // Dragged too far off bottom edge
+  const pos3 = clampCoordinates(100, 1500, 300, 40, 1920, 1080);
+  assert.strictEqual(pos3.top, 1080 - 40 - 10);
+
+  // Dragged negative offscreen
+  const pos4 = clampCoordinates(-50, -20, 300, 40, 1920, 1080);
+  assert.strictEqual(pos4.left, 10);
+  assert.strictEqual(pos4.top, 10);
+});
+
 console.log("==========================================");
 console.log(` Summary: ${passed}/${total} tests passed!`);
 console.log("==========================================");

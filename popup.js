@@ -80,6 +80,19 @@ async function inspectCurrentTab() {
       return;
     }
 
+    const isOwnExtension = Boolean(
+      tab.url && chrome.runtime && chrome.runtime.getURL && tab.url.startsWith(chrome.runtime.getURL(""))
+    );
+    const isSandbox = isOwnExtension || /sandbox\.html/i.test(tab.url);
+
+    if (isSandbox) {
+      setTabInfo("Test Playground", "Sandbox");
+      unsupportedBanner.classList.add("hidden");
+      fillBtn.disabled = false;
+      fillBtnText.textContent = "Fill test form";
+      return;
+    }
+
     // Check for internal browser URLs
     if (/^(chrome|edge|opera|about|view-source|chrome-extension):\/\//i.test(tab.url)) {
       setTabInfo("Browser page", "Restricted");
@@ -214,14 +227,38 @@ async function handleFillClick() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error("No active tab found.");
-    if (!/^https?:\/\//i.test(tab.url || "")) {
+
+    const isOwnExtension = Boolean(
+      tab.url && chrome.runtime && chrome.runtime.getURL && tab.url.startsWith(chrome.runtime.getURL(""))
+    );
+    const isSandbox = isOwnExtension || /sandbox\.html/i.test(tab.url || "");
+
+    if (!isSandbox && !/^https?:\/\//i.test(tab.url || "")) {
       throw new Error("JobFill cannot run on restricted or browser internal URLs.");
     }
 
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id, allFrames: true },
-      files: ["constants.js", "rules.js", "content.js"],
-    });
+    let injected = false;
+    if (isSandbox) {
+      try {
+        const res = await chrome.tabs.sendMessage(tab.id, { action: "jobfillRun" });
+        if (res && res.ok) injected = true;
+      } catch (_) {}
+    }
+
+    if (!injected) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, allFrames: true },
+          files: ["constants.js", "rules.js", "content.js"],
+        });
+      } catch (scriptErr) {
+        if (isSandbox) {
+          await chrome.tabs.sendMessage(tab.id, { action: "jobfillRun" });
+        } else {
+          throw scriptErr;
+        }
+      }
+    }
 
     showStatus("Active on page", true);
     setTimeout(renderLog, 3000);
